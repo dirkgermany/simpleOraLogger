@@ -78,6 +78,7 @@ logLevelDebug   constant number := 8;
     procedure ERROR(p_processId number, p_stepInfo varchar2);
     
 ### Session Handling
+<a id="M"></a> Mandatory
     -- (m) = mandatory
     -- (o) = optional
     -- (n) = NULL is allowed
@@ -86,7 +87,7 @@ logLevelDebug   constant number := 8;
 The NEW_SESSION function starts the logging session for a process.
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
-| p_processName | VARCHAR2| freely selectable name for identifying the process; is written to table ‘1’ | Mandatory
+| p_processName | VARCHAR2| freely selectable name for identifying the process; is written to table ‘1’ | [`M`](#m)
 | p_logLevel | NUMBER | determines the level of detail in table ‘2’ (see above) | Mandatory
 | p_daysToKeep | NUMBER | max. age of entries in days; if not NULL, all entries older than p_daysToKeep and whose process name = p_processName (not case sensitive) are deleted | Nullable
 | p_tabNamePrefix | VARCHAR2 | optional prefix of the LOG table names (see above) | Optional
