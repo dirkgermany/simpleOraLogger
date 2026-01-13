@@ -40,9 +40,7 @@ Logging uses a sequence to assign process IDs. The name of the sequence is SEQ_L
 Depending on the selected log level, additional information is written to table ‘2’ (_DETAIL).
         
 To do this, the selected log level must be >= the level implied in the logging call.
-
 * logLevelSilent -> No details are written to table '2'
- test
 * logLevelError  -> Calls to the ERROR() procedure are taken into account
 * logLevelWarn   -> Calls to the WARN() and ERROR() procedures are taken into account
 * logLevelInfo   -> Calls to the INFO(), WARN(), and ERROR() procedures are taken into account
@@ -66,18 +64,13 @@ Shortcuts for parameter requirement:
 | Name               | Type      | Description                         | Scope
 | ------------------ | --------- | ----------------------------------- | -------
 | [`NEW_SESSION`](#function-new_session) | Function  | Opens a new log session | Log Session
-| CLOSE_SESSION      | Procedure | Ends a log session                  | Log Session, Session Handling
+| [`CLOSE_SESSION`](#procedure-close_session) | Procedure | Ends a log session | Log Session, Session Handling
 | SET_PROCESS_STATUS | Procedure | Sets the state of the log status    | Log Session, Session Handling
 | INFO               | Procedure | Writes INFO log entry               | Detail Logging
 | DEBUG              | Procedure | Writes DEBUG log entry              | Detail Logging
 | WARN               | Procedure | Writes WARN log entry               | Detail Logging
 | ERROR              | Procedure | Writes ERROR log entry              | Detail Logging
 | LOG_DETAIL         | Procedure | Writes log entry with any log level | Detail Logging
-
- procedure INFO(p_processId number, p_stepInfo varchar2);
-    procedure DEBUG(p_processId number, p_stepInfo varchar2);
-    procedure WARN(p_processId number, p_stepInfo varchar2);
-    procedure ERROR(p_processId number, p_stepInfo varchar2);
     
 ### Function NEW_SESSION
 The NEW_SESSION function starts the logging session for a process.
@@ -117,7 +110,7 @@ Ends a logging session with optional final informations.
 | p_stepsToDo | NUMBER | Number of work steps that would have been necessary for complete processing. This value must be managed by the calling package | [`N`](#n)
 | p_stepsDone | NUMBER | Number of work steps that were actually processed. This value must be managed by the calling package | [`N`](#n)
 | p_processInfo | VARCHAR2 | Final information about the process (e.g., a readable status) | [`N`](#n)
-| p_status | NUMBER | Final status of the process (freely selected by the calling package) | [`N`](#m)
+| p_status | NUMBER | Final status of the process (freely selected by the calling package) | [`N`](#n)
 
 **Syntax and Examples**
 ```sql
@@ -135,28 +128,24 @@ so_log.close_session(gProcessId, null, null, 'Success', 1);
 so_log.close_session(gProcessId, 100, 99, 'Problem', 2);
 ```
 
+### Procedure SET_PROCESS_STATUS
+Updates the status of a process.
 
-### Life Cycle of a LOG SESSION
-The NEW_SESSION function starts and the CLOSE_SESSION method ends a LOG session.
+As mentioned at the beginning, there is only one entry in table ‘1’ for a logging session and the corresponding process.
+The status of the process can be set using the following two variants:
 
-Calling both is important to ensure correct logging.
-Regardless of this, logging is also possible without CLOSE_SESSION, for example, if the calling process is terminated prematurely or unexpectedly due to an error.    
+*Option 1 without info as text*
+| Parameter | Type | Description | Required
+| --------- | ---- | ----------- | -------
+| p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
+| p_status | NUMBER | Current status of the process (freely selected by the calling package) | [`M`](#m)
 
-    
-    ---------------------------------
-    -- Update the status of a process
-    ---------------------------------
-    -- As mentioned at the beginning, there is only one entry in table ‘1’ for a logging session and the corresponding process.
-    -- The status of the process can be set using the following two procedures:
-    
-    procedure SET_PROCESS_STATUS(p_processId number, p_status number);
-    -- (m) p_processId       : ID of the process to which the session applies
-    -- (m) p_status          : Current status of the process (freely selected by the calling packet)
-    
-    procedure SET_PROCESS_STATUS(p_processId number, p_status number, p_processInfo varchar2);
-    -- (m) p_processId       : ID of the process to which the session applies
-    -- (m) p_status          : Current status of the process (freely selected by the calling packet)
-    -- (m) p_processInfo     : Current information about the process (e.g. a readable status)
+*Variant 2 with additional info as text*
+| Parameter | Type | Description | Required
+| --------- | ---- | ----------- | -------
+| p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
+| p_status | NUMBER | Current status of the process (freely selected by the calling package) | [`M`](#m)
+| p_processInfo | VARCHAR2 | Current information about the process (e.g., a readable status) | [`M`](#m)
       
     
     ------------------
@@ -176,7 +165,7 @@ Regardless of this, logging is also possible without CLOSE_SESSION, for example,
     procedure DEBUG(p_processId number, p_stepInfo varchar2);
     procedure WARN(p_processId number, p_stepInfo varchar2);
     procedure ERROR(p_processId number, p_stepInfo varchar2);
-    
+
     -- Forces the writing of log entries independent to the general log level
     procedure LOG_DETAIL(p_processId number, p_stepInfo varchar2, p_logLevel number);
     -- (m) p_processId     : ID of the process to which the session applies
@@ -184,6 +173,11 @@ Regardless of this, logging is also possible without CLOSE_SESSION, for example,
     -- (m) p_logLevel      : This log level is written into the detail table
 
 
+### Life Cycle of a LOG SESSION
+The NEW_SESSION function starts and the CLOSE_SESSION method ends a LOG session.
+
+Calling both is important to ensure correct logging.
+Regardless of this, logging is also possible without CLOSE_SESSION, for example, if the calling process is terminated prematurely or unexpectedly due to an error.    
 
     ----------
     -- Testing
