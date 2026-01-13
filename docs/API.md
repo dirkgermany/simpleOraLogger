@@ -63,7 +63,7 @@ logLevelDebug   constant number := 8;
 ## Functions and Procedures
 | Name               | Type      | Description                         | Scope
 | ------------------ | --------- | ----------------------------------- | -------
-| NEW_SESSION        | Function  | Opens a new log session             | Log Session
+| NEW_SESSION [`NEW_SESSION`](####new_session) | Function  | Opens a new log session             | Log Session
 | CLOSE_SESSION      | Procedure | Ends a log session                  | Log Session
 | SET_PROCESS_STATUS | Procedure | Sets the state of the log status    | Log Session
 | INFO               | Procedure | Writes INFO log entry               | Detail Logging
@@ -82,7 +82,7 @@ logLevelDebug   constant number := 8;
     -- (o) = optional
     -- (n) = NULL is allowed
 
-Function NEW_SESSION
+#### NEW_SESSION
 
 
 ```sql    
