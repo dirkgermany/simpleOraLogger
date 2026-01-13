@@ -78,7 +78,8 @@ logLevelDebug   constant number := 8;
     procedure ERROR(p_processId number, p_stepInfo varchar2);
     
 ### Session Handling
-<a id="M"></a> Mandatory
+* <a id="M"> Mandatory</a>
+
     -- (m) = mandatory
     -- (o) = optional
     -- (n) = NULL is allowed
