@@ -1,5 +1,5 @@
 # simpleOraLogger API
-[[_TOC_]]
+[_TOC_]
 
 ## Overview
 simpleOraLogger is nothing more than a PL/SQL Package.
