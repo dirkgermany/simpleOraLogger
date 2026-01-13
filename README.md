@@ -73,26 +73,20 @@ end MY_DEMO_PROC;
   -- general status of your process
   -- to shorten the output here in the text I simplified some values
   select * from LOG_PROCESS where PROCESS_NAME = 'my application';
-    ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
-    1  | my application | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2      | ERROR
 
   -- get details; the NO is the serial order of entries related to the process
   select * from LOG_PROCESS_DETAIL where process_id = 1 order by NO;
-    PROCESS_ID | NO | INFO       | LOG_LEVEL | SESSION_TIME    | SESSION_USER | HOST_NAME | ERR_STACK | ERR_BACKTRACE || ERR_CALLSTACK
-    1          | 1  | Start      | INFO      | 13.01.26 10:... | SCOTT        | SERVER1   | NULL               | NULL             | "----- PL/SQL ..." 
-    1          | 2  | Function A | DEBUG     | 13.01.26 11:... | SCOTT        | SERVER1   | NULL               | NULL             | "----- PL/SQL ..." 
-    1          | 3  | Function B | ERROR     | 13.01.26 12:... | SCOTT        | SERVER1   | "----- PL/SQL ..." | "--- PL/SQL ..." | "----- PL/SQL ..." 
-
-394	3	function scanResponseFile	DEBUG	13.01.26 11:56:21,857280000	AVHBERICHT	bnpdba31			"----- PL/SQL Call Stack -----
-  object      line  object
-  handle    number  name
-0x21ec57560       484  package body AVHBERICHT.PCK_LOGGING.REPLACEPLACEHOLDERS
-0x21ec57560       298  package body AVHBERICHT.PCK_LOGGING.WRITE_DEBUG_INFO
-0x21ec57560       339  package body AVHBERICHT.PCK_LOGGING.DEBUG
-0x2cb0c34f0      1052  package body AVHBERICHT.PCK_ASBASG.SCANRESPONSEFILE
-0x2cb0c34f0       559  package body AVHBERICHT.PCK_ASBASG.UPDATETRACERDATEN
-0x2cb0c34f0       433  package body AVHBERICHT.PCK_ASBASG.UPDATETRACERDATEN
-0x2cb0c34f0       425  package body AVHBERICHT.PCK_ASBASG.UPDATETRACERDATEN
-0x27eb7d1d8         1  anonymous block
-"
 ```
+
+Result for table LOG_PROCESS
+| ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
+| -- | ---------------| --------------------- | --------------------- | ----------- | ---------- | ------ | -----
+| 1  | my application | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2      | ERROR
+
+Result for table LOG_PROCESS_DETAIL
+| PROCESS_ID | NO | INFO       | LOG_LEVEL | SESSION_TIME    | SESSION_USER | HOST_NAME | ERR_STACK        | ERR_BACKTRACE    | ERR_CALLSTACK
+| ---------- | -- | ---------- | --------- | --------------- | ------------ | --------- | ---------------- | ---------------- | ---------------
+| 1          | 1  | Start      | INFO      | 13.01.26 10:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
+| 1          | 2  | Function A | DEBUG     | 13.01.26 11:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
+| 1          | 3  | I made...  | ERROR     | 13.01.26 12:... | SCOTT        | SERVER1   | "--- PL/SQL ..." | "--- PL/SQL ..." | "--- PL/SQL ..."
+
