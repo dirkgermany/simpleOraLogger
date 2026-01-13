@@ -34,3 +34,14 @@ simpleOraLogger monitors different informations about your processes.
 * Error stack (when exception was thrown)
 * Error backtrace (depends to log level)
 * Call stack (depends to log level)
+
+## Demo   
+   ```sql
+   -- global process ID related to your log process
+   gProcessId number(19,0);
+
+   -- begin a new logging session
+   gProcessId := pck_logging.new_session('my application', simpleOraLogger.logLevelWarn, 30);
+   pck_logging.info(gProcessId, 'Something happened or not');
+
+   ```sql
