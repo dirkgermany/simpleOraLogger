@@ -1,5 +1,11 @@
 # simpleOraLogger
 
+## Content
+- [About](#about)
+- [Simple?](#simple)
+- [Logging](#logging)
+- [Demo](#demo)
+
 ## About
 PL/SQL Package for simple logging of PL/SQL processes. Allows multiple and parallel logging out of the same session.
 
@@ -8,7 +14,7 @@ Even though debug informations can be written, simpleOraLogger is primarily inte
 For easy daily monitoring log informations are written into two tables: one to see the status of your processes, one to see more details, e.g. something went wrong.
 Your processes can be identified by their names.
 
-## Simple means:
+## Simple?
 * Copy the package code to your database schema
 * Call the logging procedures/functions out of your PL/SQL code
 * Check log entries in the log tables
@@ -51,7 +57,9 @@ begin
   gProcessId := simpleOraLogger.new_session('my application', simpleOraLogger.logLevelWarn, 30);
 
   -- write a log entry whenever you want
-  simpleOraLogger.info(gProcessId, 'Something happened or not');
+  simpleOraLogger.info(gProcessId, 'Start');
+  -- for more details...
+  simpleOraLogger.debug(gProcessId, 'Function A');
   -- e.g. informations when an exception was raised
   simpleOraLogger.error(gProcessId, 'I made a fault');
 
@@ -78,15 +86,15 @@ end MY_DEMO_PROC;
   select * from LOG_PROCESS_DETAIL where process_id = 1 order by NO;
 ```
 
-Result for table LOG_PROCESS
-| ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
-| -- | ---------------| --------------------- | --------------------- | ----------- | ---------- | ------ | -----
-| 1  | my application | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2      | ERROR
+#### Result for table LOG_PROCESS
+>| ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
+>| -- | ---------------| --------------------- | --------------------- | ----------- | ---------- | ------ | -----
+>| 1  | my application | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2      | ERROR
 
-Result for table LOG_PROCESS_DETAIL
-| PROCESS_ID | NO | INFO       | LOG_LEVEL | SESSION_TIME    | SESSION_USER | HOST_NAME | ERR_STACK        | ERR_BACKTRACE    | ERR_CALLSTACK
-| ---------- | -- | ---------- | --------- | --------------- | ------------ | --------- | ---------------- | ---------------- | ---------------
-| 1          | 1  | Start      | INFO      | 13.01.26 10:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
-| 1          | 2  | Function A | DEBUG     | 13.01.26 11:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
-| 1          | 3  | I made...  | ERROR     | 13.01.26 12:... | SCOTT        | SERVER1   | "--- PL/SQL ..." | "--- PL/SQL ..." | "--- PL/SQL ..."
+#### Result for table LOG_PROCESS_DETAIL
+>| PROCESS_ID | NO | INFO           | LOG_LEVEL | SESSION_TIME    | SESSION_USER | HOST_NAME | ERR_STACK        | ERR_BACKTRACE    | ERR_CALLSTACK
+>| ---------- | -- | -------------- | --------- | --------------- | ------------ | --------- | ---------------- | ---------------- | ---------------
+>| 1          | 1  | Start          | INFO      | 13.01.26 10:... | SCOTT        | SERVER1   | NULL             | NULL             | NULL
+>| 1          | 2  | Function A     | DEBUG     | 13.01.26 11:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
+>| 1          | 3  | I made a fault | ERROR     | 13.01.26 12:... | SCOTT        | SERVER1   | "--- PL/SQL ..." | "--- PL/SQL ..." | "--- PL/SQL ..."
 
