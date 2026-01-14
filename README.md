@@ -19,7 +19,9 @@ For easy monitoring log informations are written into two tables: one to see the
 Your processes can be identified by their names.
 
 ## Simple?
-* Copy the package code to your database schema
+* Create Sequence and Package
+  * Create Sequence by a simple statement (see statement in documentation)
+  * Copy the package code to your database schema and compile
 * Call the logging procedures/functions out of your PL/SQL code
 * Check log entries in the log tables
 
