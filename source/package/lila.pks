@@ -37,6 +37,9 @@ create or replace PACKAGE LILA AS
     ----------
     -- Testing
     ----------
+    -- Check if LILA is alive
+    PROCEDURE IS_ALIVE;
+
     -- feel free
     procedure insertProcess (p_tabName varchar2, p_processId number, p_logLevel number);
     function test(p_processId number) return varchar2;
