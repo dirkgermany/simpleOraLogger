@@ -37,7 +37,7 @@ Table *master table* is the leading table and contains the started processes, th
 The entries in *detail table* contain further details corresponding to the entries in Table 1.
 
 Both tables have standard names.
-At the same time, the name of table *master table* is the so-called prefix for the *detail table*.
+At the same time, the name of the *master table* is the so-called prefix for the *detail table*.
         
 * The default name for the *master table* is LILA_PROCESS.
 * The default name for the *detail table* is LILA_PROCESS_DETAIL
