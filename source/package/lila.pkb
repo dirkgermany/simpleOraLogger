@@ -516,6 +516,16 @@ create or replace PACKAGE BODY LILA AS
     end;
 
 	------------------------------------------------------------------------------------------------
+    
+    -- Ends an earlier started logging session by the process ID.
+    -- Important! Ignores if the process doesn't exist! No exception is thrown!
+    procedure CLOSE_SESSION(p_processId number)
+    as
+    begin
+        close_session(p_processId, null, null, null, null);
+    end;
+
+	------------------------------------------------------------------------------------------------
 
     -- Ends an earlier started logging session by the process ID.
     -- Important! Ignores if the process doesn't exist! No exception is thrown!
