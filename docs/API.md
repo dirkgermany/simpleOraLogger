@@ -89,7 +89,7 @@ Shortcuts for parameter requirement:
 | [`DEBUG`](#general-logging-procedures) | Procedure | Writes DEBUG log entry              | Detail Logging
 | [`WARN`](#general-logging-procedures) | Procedure | Writes WARN log entry               | Detail Logging
 | [`ERROR`](#general-logging-procedures) | Procedure | Writes ERROR log entry              | Detail Logging
-| LOG_DETAIL         | Procedure | Writes log entry with any log level | Detail Logging
+| [`LOG_DETAIL`](#procedure-log_detail) | Procedure | Writes log entry with any log level | Detail Logging
 
 ### Session related Functions and Procedures
 #### Function NEW_SESSION
@@ -122,8 +122,16 @@ gProcessId := lila.new_session('my application', lila.logLevelWarn, null, 'MY_LO
 ```
 
 #### Procedure CLOSE_SESSION
-Ends a logging session with optional final informations.
+Ends a logging session with optional final informations. Two function signatures are available for different scenarios.
+* Option 1 is a simple close without any additional information about the process.
+* Option 2 allows adding various informations to the ending process.
 
+*Option 1*
+| Parameter | Type | Description | Required
+| --------- | ---- | ----------- | -------
+| p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
+
+*Option 2*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
 | p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
@@ -136,12 +144,17 @@ Ends a logging session with optional final informations.
 ```sql
 -- Syntax
 ---------
+-- Option 1
+PROCEDURE CLOSE_SESSION(p_processId NUMBER)
+-- Option 2
 PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_stepsToDo NUMBER, p_stepsDone NUMBER, p_processInfo VARCHAR2, p_status NUMBER)
 
 -- Usage
 --------
 -- assuming that gProcessId is the global stored process ID
 
+-- close without any information (e.g. when be set with SET_PROCESS_STATUS before)
+lila.close_session(gProcessId);
 -- close without informations about process steps
 lila.close_session(gProcessId, null, null, 'Success', 1);
 -- close with additional informations about steps
