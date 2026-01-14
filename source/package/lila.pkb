@@ -4,7 +4,7 @@ create or replace PACKAGE BODY LILA AS
     TYPE t_process_rec IS RECORD (
         process_id      NUMBER(19,0),
         counter_details NUMBER := 0,
-        LILA_level       NUMBER := 0,
+        log_level       NUMBER := 0,
         tabName_prefix  VARCHAR2(100)
     );
 
