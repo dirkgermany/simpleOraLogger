@@ -137,9 +137,9 @@ logLevelDebug   constant number := 8;
 
 
 ### Shortcuts for parameter requirement
-* <a id="M"> Mandatory</a>
-* <a id="O"> Optional</a>
-* <a id="N"> Nullable</a>
+* <a id="M"> **M**andatory</a>
+* <a id="O"> **O**ptional</a>
+* <a id="N"> **N**ullable</a>
 
 ### Session related Functions and Procedures
 #### Function NEW_SESSION
