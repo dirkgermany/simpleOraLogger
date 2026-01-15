@@ -1,50 +1,61 @@
 create or replace PACKAGE LILA AS
 
-    /* Complete Doc and last version see https://github.com/dirkgermany/simpleOraLogger */
+    /* Complete Doc and last version see https://github.com/dirkgermany/LILA */
 
     -- =========
     -- Log Level
     -- =========
-    logLevelSilent  constant number := 0;
-    logLevelError   constant number := 1;
-    logLevelWarn    constant number := 2;
-    logLevelInfo    constant number := 4;
-    logLevelDebug   constant number := 8;
-    
+    logLevelSilent  CONSTANT NUMBER := 0;
+    logLevelError   CONSTANT NUMBER := 1;
+    logLevelWarn    CONSTANT NUMBER := 2;
+    logLevelInfo    CONSTANT NUMBER := 4;
+    logLevelDebug   CONSTANT NUMBER := 8;
+
     ------------------------------
     -- Life cycle of a log session
     ------------------------------
-    function  NEW_SESSION(p_processName varchar2, p_logLevel number, p_daysToKeep number, p_tabNamePrefix varchar2 default 'LILA_PROCESS') return number;
-    function NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_PROCESS') return number;
-    procedure CLOSE_SESSION(p_processId number);
-    procedure CLOSE_SESSION(p_processId number, p_stepsToDo number, p_stepsDone number, p_processInfo varchar2, p_status number);
-    
+    FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 default 'LILA_PROCESS') RETURN NUMBER;
+    FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_PROCESS') RETURN NUMBER;
+    PROCEDURE CLOSE_SESSION(p_processId NUMBER);
+    PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_stepsToDo NUMBER, p_stepsDone NUMBER, p_processInfo VARCHAR2, p_status NUMBER);
+
     ---------------------------------
     -- Update the status of a process
     ---------------------------------
-    procedure SET_PROCESS_STATUS(p_processId number, p_status number);
-    procedure SET_PROCESS_STATUS(p_processId number, p_status number, p_processInfo varchar2);
-    procedure SET_STEPS_TODO(p_processId NUMBER, p_stepsToDo NUMBER);
-    procedure SET_STEPS_DONE(p_processId NUMBER, p_stepsDone NUMBER);
-    procedure STEP_DONE(p_processId NUMBER);
+    PROCEDURE SET_PROCESS_STATUS(p_processId NUMBER, p_status NUMBER);
+    PROCEDURE SET_PROCESS_STATUS(p_processId NUMBER, p_status NUMBER, p_processInfo VARCHAR2);
+    PROCEDURE SET_STEPS_TODO(p_processId NUMBER, p_stepsToDo NUMBER);
+    PROCEDURE SET_STEPS_DONE(p_processId NUMBER, p_stepsDone NUMBER);
+    PROCEDURE STEP_DONE(p_processId NUMBER);
+    
+    -------------------------------
+    -- Request process informations
+    FUNCTION GET_STEPS_DONE(p_processId NUMBER) RETURN NUMBER;
+    FUNCTION GET_STEPS_TODO(p_processId NUMBER) RETURN NUMBER;
+    FUNCTION GET_PROCESS_START(p_processId NUMBER) RETURN TIMESTAMP;
+    FUNCTION GET_PROCESS_END(p_processId NUMBER) RETURN TIMESTAMP;
+    FUNCTION GET_PROCESS_STATUS(p_processId NUMBER) RETURN NUMBER;
+    FUNCTION GET_PROCESS_INFO(p_processId NUMBER) RETURN VARCHAR2;
+
+    -------------------------------
     
     ------------------
     -- Logging details
     ------------------
-    procedure INFO(p_processId number, p_stepInfo varchar2);
-    procedure DEBUG(p_processId number, p_stepInfo varchar2);
-    procedure WARN(p_processId number, p_stepInfo varchar2);
-    procedure ERROR(p_processId number, p_stepInfo varchar2);
-    
-    procedure LOG_DETAIL(p_processId number, p_stepInfo varchar2, p_logLevel number);
+    PROCEDURE INFO(p_processId NUMBER, p_stepInfo VARCHAR2);
+    PROCEDURE DEBUG(p_processId NUMBER, p_stepInfo VARCHAR2);
+    PROCEDURE WARN(p_processId NUMBER, p_stepInfo VARCHAR2);
+    PROCEDURE ERROR(p_processId NUMBER, p_stepInfo VARCHAR2);
+
+    PROCEDURE LOG_DETAIL(p_processId NUMBER, p_stepInfo VARCHAR2, p_logLevel NUMBER);
 
     ----------
     -- Testing
     ----------
-    -- Check if LILA is alive
+    -- Check if LILA works
     PROCEDURE IS_ALIVE;
-
+    
     -- feel free
-    function test(p_processId number) return varchar2;
+    FUNCTION test(p_processId NUMBER) RETURN VARCHAR2;
 
 END LILA;
