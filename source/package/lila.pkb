@@ -597,13 +597,8 @@ create or replace PACKAGE BODY LILA AS
         where id = PH_PROCESS_ID';   
         sqlStatement := replacePlaceHolders(p_processId, sqlStatement, null, null, null, null, null, null, null);
         
-dbms_output.enable();
-dbms_output.put_line('STEP_DONE: ' || sqlStatement);
         execute immediate sqlStatement into lStepCounter;
-
-dbms_output.put_line('lStepCounter before: ' || lStepCounter);
         lStepCounter := nvl(lStepCounter, 0) +1;
-dbms_output.put_line('lStepCounter after: ' || lStepCounter);
         set_steps_done(p_processId, lStepCounter);
     end;
 
