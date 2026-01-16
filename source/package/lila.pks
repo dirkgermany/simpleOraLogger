@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 Dirk Goldbach
+ * Licensed under the MIT License.
+ * See LICENSE file in the project root for full license information.
+ */
+
 create or replace PACKAGE LILA AS
 
     /* Complete Doc and last version see https://github.com/dirkgermany/LILA */
