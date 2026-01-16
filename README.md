@@ -1,5 +1,7 @@
 # LILA
-[![Release](https://img.shields.io)](https://github.com/dirkgermany/LILA-Logging/releases/latest)
+[![Release](https://img.shields.io/github/v/release/dirkgermany/LILA-Logging)](https://github.com/dirkgermany/LILA-Logging/releases/latest)
+[![Lizenz](https://img.shields.io/github/license/dirkgermany/LILA-Logging)](https://github.com/dirkgermany/LILA-Logging/blob/main/LICENSE)
+[![Größe](https://img.shields.io/github/repo-size/dirkgermany/LILA-Logging)](https://github.com/dirkgermany/LILA-Logging/blob/main/LICENSE)
 
 ## Content
 - [About](#about)
