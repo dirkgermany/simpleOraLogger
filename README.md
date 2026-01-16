@@ -9,8 +9,9 @@
 - [Lightwight?](#lightwight)
 - [Simplicity?](#simplicity)
 - [Logging](#logging)
+  - [How to log](#how-to-log)
 - [Monitoring](#monitoring)
-- [Demo](#demo)
+  - [How to monitor](#how-to-monitor)
 
 ## About
 LILA **i**s **l**ogging **a**pplications. LILA is a lightwight logging framework. And a little bit more.
@@ -26,7 +27,7 @@ Detailed information on setup and the API you will find in the [documentation fo
 1. Simplicity
 2. Lightwight
 3. Parallel logging from one or multiple database sessions
-4. Supports monitoring per API
+4. Supports monitoring per SQL and API
 5. Clear code for individual customizing
 6. Intuitive API
 
@@ -40,13 +41,21 @@ LILA consists of a PL/SQL package, two tables and a sequence. That's it.
 
 Have a look to the [sample application "learn_lila"](source/sample).
 
+---
 ## Logging
-LILA monitors different informations about your processes.
+LILA persists different informations about your processes.
+To keep it easy the informations are stored in two tables:
+
+1. The (leading) master table with informations about the process itself (the live-dashboard). Always exactly one record per process. This table frees you from complex queries such as “group by,” “max(timestamp),” etc., which you would otherwise have to run on thousands or millions of rows to see the current status of your process.
+
+2. The table with typical detailed log informations (the process-history). This second table enables rapid monitoring because the constantly growing number of entries has no impact on the master table.
 
 ***Process informations***
 * Process name
 * Process ID
-* Begin and Start
+* Timestamps process_start
+* Timestamp process_end
+* Timestamp last_update (should be identical with timestamp process_end, if exists)
 * Steps todo and steps done
 * Any info
 * (Last) status
@@ -63,68 +72,85 @@ LILA monitors different informations about your processes.
 * Error backtrace (depends to log level)
 * Call stack (depends to log level)
 
-## Monitoring
-The above process information can be read via the API interface.
-* Process name
-* Process ID
-* Begin and Start
-* Steps todo and steps done
-* Info
-* Status
-
-## Demo
-### Usage from your PL/SQL
+### How to log
+A code snippet:
 ```sql
 procedure MY_DEMO_PROC
 as
-  -- global process ID related to your logging process
-  gProcessId number(19,0);
+  -- process ID related to your logging process
+  lProcessId number(19,0);
 
 begin
   -- begin a new logging session
   -- the last parameter refers to killing log entries which are older than the given number of days
   -- if this param is NULL, no log entry will be deleted
-  gProcessId := lila.new_session('my application', lila.logLevelWarn, 30);
+  lProcessId := lila.new_session('my application', lila.logLevelWarn, 30);
 
   -- write a log entry whenever you want
-  lila.info(gProcessId, 'Start');
+  lila.info(lProcessId, 'Start');
   -- for more details...
-  lila.debug(gProcessId, 'Function A');
+  lila.debug(lProcessId, 'Function A');
   -- e.g. informations when an exception was raised
-  lila.error(gProcessId, 'I made a fault');
+  lila.error(lProcessId, 'I made a fault');
 
   -- also you can change the status during your process runs
-  lila.set_process_status(1, 'DONE');
+  lila.set_process_status(lProcessId, 1, 'DONE');
 
   -- last but not least end the logging session
   -- opional you can set the numbers of steps to do and steps done 
-  lila.close_session(gProcessId, 100, 99, 'DONE', 1);
+  lila.close_session(lProcessId, 100, 99, 'DONE', 1);
 
 end MY_DEMO_PROC;
+
 ```
-### Log entries per SQL
+---
+
+## Monitoring
+Monitor your processes according to your requirements:
+* Real-time Progress: Query the master table for a single-row snapshot of any running process (steps_todo, steps_done, status, timestamps).
+* Deep Dive (Details): Query the detail table for the full chronological history and error stack of a process.
+* API Access: Use the built-in getter functions to retrieve status and progress directly within your PL/SQL logic or UI components.
+
+### How to monitor
+Three options:
+
+#### Real-time Progress
+**Live-dashboard data**
 ```sql
-  -- main entries are written to the default log table LILA_PROCESS
-  -- details are writte to the default detail log table LILA_PROCESS_DETAIL
-  -- find out your process by its process name or look for the latest entry in the LILA_PROCESS
+SELECT id, status, last_update, ... FROM lila_process WHERE process_name = ... (provides the current status of the process)
+```
+>| ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | LAST_UPDATE           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
+>| -- | ---------------| --------------------- | --------------------- | --------------------- | ----------- | ---------- | ----- | ------
+>| 1  | my application | 12.01.26 18:17:51,... | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2     | ERROR
 
-  -- general status of your process
-  -- to shorten the output here in the text I simplified some values
-  select * from LILA_PROCESS where PROCESS_NAME = 'my application';
 
-  -- get details; the NO is the serial order of entries related to the process
-  select * from LILA_PROCESS_DETAIL where process_id = 1 order by NO;
+
+#### Deep Dive
+**Historical data**
+```sql
+SELECT * FROM lila_process_detail WHERE process_id = ...
 ```
 
-#### Result for table LILA_PROCESS
->| ID | PROCESS_NAME   | PROCESS_START         | PROCESS_END           | STEPS_TO_DO | STEPS_DONE | STATUS | INFO
->| -- | ---------------| --------------------- | --------------------- | ----------- | ---------- | ------ | -----
->| 1  | my application | 12.01.26 18:18:53,... | 12.01.26 18:18:53,... | 100         | 99         | 2      | ERROR
-
-#### Result for table LILA_PROCESS_DETAIL
 >| PROCESS_ID | NO | INFO           | LOG_LEVEL | SESSION_TIME    | SESSION_USER | HOST_NAME | ERR_STACK        | ERR_BACKTRACE    | ERR_CALLSTACK
 >| ---------- | -- | -------------- | --------- | --------------- | ------------ | --------- | ---------------- | ---------------- | ---------------
 >| 1          | 1  | Start          | INFO      | 13.01.26 10:... | SCOTT        | SERVER1   | NULL             | NULL             | NULL
 >| 1          | 2  | Function A     | DEBUG     | 13.01.26 11:... | SCOTT        | SERVER1   | NULL             | NULL             | "--- PL/SQL ..." 
 >| 1          | 3  | I made a fault | ERROR     | 13.01.26 12:... | SCOTT        | SERVER1   | "--- PL/SQL ..." | "--- PL/SQL ..." | "--- PL/SQL ..."
 
+
+#### API
+The API provides all process data which belong to the process_id (see [Logging](#logging)).
+```sql
+...
+FUNCTION getStatus(p_processId NUMBER) RETURNS VARCHAR2
+...
+lProcessStatus := lila.get_process_status(p_processId);
+lProcessInfo := lila.get_process_info(p_processId);
+lStepsDone := lila.get_steps_done(p_processId);
+...
+return 'ID = ' || id || '; Status: ' || lProcessStatus || '; Info: ' || lProcessInfo || '; Steps completed: ' || lStepsDone;
+```
+```sql
+SELECT my_app.getStatus(1) proc_status FROM dual;
+> ID = 1; Status: OK; Info: 'just working'; Steps completed: 42
+```
