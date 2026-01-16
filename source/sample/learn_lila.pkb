@@ -35,7 +35,7 @@ create or replace PACKAGE BODY LEARN_LILA AS
     
     -- Starts without steps, sets steps_todo after starting and increments the completed steps
     -- No detail will be written
-    procedure cycle_with_steps
+    procedure increment_steps_and_monitor
     as
         lProcessId number(19,0);
     begin
