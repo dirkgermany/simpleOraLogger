@@ -145,6 +145,9 @@ logLevelDebug   constant number := 8;
 * <a id="N"> **N**ullable</a>
 
 ### Session related Functions and Procedures
+Whenever the record in the *master table* is changed, the value of the field last_update will be updated.
+This mechanism is supports the monitoring features.
+
 #### Function NEW_SESSION
 The NEW_SESSION function starts the logging session for a process. Two function signatures are available for different scenarios.
 
