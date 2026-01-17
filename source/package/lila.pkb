@@ -773,7 +773,7 @@ create or replace PACKAGE BODY LILA AS
 
 	------------------------------------------------------------------------------------------------
 
-    function NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_PROCESS') return number
+    function NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_LOG') return number
     as
         pragma autonomous_transaction;
         sqlStatement varchar2(600);
@@ -827,7 +827,7 @@ create or replace PACKAGE BODY LILA AS
     -- Opens/starts a new logging session.
     -- The returned process id must be stored within the calling procedure because it is the reference
     -- which is recommended for all following actions (e.g. CLOSE_SESSION, DEBUG, SET_PROCESS_STATUS).
-    function NEW_SESSION(p_processName varchar2, p_logLevel number, p_daysToKeep number, p_tabNamePrefix varchar2 default 'LILA_PROCESS') return number
+    function NEW_SESSION(p_processName varchar2, p_logLevel number, p_daysToKeep number, p_tabNamePrefix varchar2 default 'LILA_LOG') return number
     as
         pragma autonomous_transaction;
         sqlStatement varchar2(600);
