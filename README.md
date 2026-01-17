@@ -1,4 +1,4 @@
-# LILA - **LILA* **I**ntegrated **L**ogging **A**rchitecture
+# LILA - **LILA** **I**ntegrated **L**ogging **A**rchitecture
 [![Release](https://img.shields.io/github/v/release/dirkgermany/LILA-Logging)](https://github.com/dirkgermany/LILA-Logging/releases/latest)
 [![Lizenz](https://img.shields.io/github/license/dirkgermany/LILA-Logging)](https://github.com/dirkgermany/LILA-Logging/blob/main/LICENSE)
 [![Größe](https://img.shields.io/github/repo-size/dirkgermany/LILA-Logging)](https://https://github.com/dirkgermany/LILA-Logging)
