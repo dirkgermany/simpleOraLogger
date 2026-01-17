@@ -28,6 +28,7 @@ LILA is developed by a developer who hates over-engineered tools. Focus: 5 minut
 5. **Smart Context Capture**: Automatically records ERR_STACK, ERR_BACKTRACE, and ERR_CALLSTACK based on the configured log level, providing deep insights for error analysis without manual overhead
 6. **Version Compatibility**: Fully tested on the latest Oracle AI Database 26ai (2026)
 7. **Monitoring**: You have the option to observe your applications via SQL or by the API
+8. **Optional self-cleaning**: Automatically purges expired logs per application during session start—no background jobs or schedulers required
 
 ## Fast integration
 * Setting up LILA means creating a sequence and a package (refer [documentation file "setup.md"](docs/setup.md))
