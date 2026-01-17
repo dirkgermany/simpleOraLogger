@@ -192,8 +192,6 @@ create or replace PACKAGE BODY LILA AS
         -- find record which relates to the process id
         processRecord := getSessionRecord(pProcessId);
         
-        /*
-            später tauschen, wenn der Rest funktioniert
         replacedString := replace(
             replace(
                 replace(
@@ -227,25 +225,6 @@ create or replace PACKAGE BODY LILA AS
                 ), PH_ERR_STACK, DBMS_UTILITY.FORMAT_ERROR_STACK
             ), PH_ERR_BACKTRACE, DBMS_UTILITY.FORMAT_ERROR_BACKTRACE
         );
-        */
-
-        replacedString := replace(replacedString, PH_LILA_TABLE_NAME, processRecord.tabName_prefix);
-        replacedString := replace(replacedString, PH_LILA_DETAIL_TABLE_NAME,  processRecord.tabName_prefix || '_DETAIL');
-        replacedString := replace(replacedString, PH_PROCESS_NAME, pProcessName);
-        replacedString := replace(replacedString, PH_PROCESS_INFO, pProcessInfo);
-        replacedString := replace(replacedString, PH_COUNTER_DETAILS, processRecord.counter_details);
-        replacedString := replace(replacedString, PH_STEP_INFO, pStepInfo);
-        replacedString := replace(replacedString, PH_PROCESS_ID, pProcessId);
-        replacedString := replace(replacedString, PH_STATUS, pStatus);
-        replacedString := replace(replacedString, PH_STEPS_TO_DO, pStepsToDo);
-        replacedString := replace(replacedString, PH_STEPS_DONE, pStepsDone);
-        replacedString := replace(replacedString, PH_LOG_LEVEL, getLogLevelAsText(pLogLevel));
-        replacedString := replace(replacedString, PH_SESSION_USER, SYS_CONTEXT('USERENV','SESSION_USER'));
-        replacedString := replace(replacedString, PH_HOST_NAME, SYS_CONTEXT('USERENV','HOST'));
-        replacedString := replace(replacedString, PH_ERR_CALLSTACK, DBMS_UTILITY.FORMAT_CALL_STACK);
-        replacedString := replace(replacedString, PH_ERR_STACK, DBMS_UTILITY.FORMAT_ERROR_STACK);
-        replacedString := replace(replacedString, PH_ERR_BACKTRACE, DBMS_UTILITY.FORMAT_ERROR_BACKTRACE);
-
         return replacedString;
     end;
 
