@@ -32,6 +32,7 @@ The detailed nature of this document may give the impression that using LILA is 
 
 In fact, a few interface calls are all that is needed for comprehensive monitoring or logging. Existing program code for the processes to be monitored also requires only minor adjustments.
 Nevertheless, for a basic understanding of LILA and smooth integration into your applications, I recommend reading my hopefully not too boring explanations below.
+
 However, if you want to get started right away and don't want to waste time reading documentation, I recommend the sample application. If you look at the code of this application, you will probably already understand and be able to use the most important concepts of LILA.
 And who knows, when you have a quiet moment, you might decide to take another look at this document after all.
 
