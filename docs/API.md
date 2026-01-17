@@ -85,8 +85,8 @@ The entries in *detail table* contain further details corresponding to the entri
 Both tables have standard names.
 At the same time, the name of the *master table* is the so-called prefix for the *detail table*.
         
-* The default name for the *master table* is LILA_PROCESS.
-* The default name for the *detail table* is LILA_PROCESS_DETAIL
+* The default name for the *master table* is LILA_LOG
+* The default name for the *detail table* is LILA_LOG_DETAIL
        
 The name of table *master table* can be customized; for *detail table*, the 
 selected name of table *master table* is added as a prefix and _DETAIL is appended.
@@ -177,13 +177,13 @@ Description: The new process ID; this ID is required for subsequent calls in ord
 ```sql
 -- Syntax
 ---------
-FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_PROCESS')
-FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_PROCESS')
+FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_LOG')
+FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel NUMBER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNamePrefix VARCHAR2 DEFAULT 'LILA_LOG')
 
 -- Usage
 --------
 -- Option 1
--- No deletion of old entries, log table name is 'LILA_PROCESS'
+-- No deletion of old entries, log table name is 'LILA_LOG'
 gProcessId := lila.new_session('my application', lila.logLevelWarn, null);
 -- keep entries which are not older than 30 days
 gProcessId := lila.new_session('my application', lila.logLevelWarn, 30);
@@ -418,7 +418,7 @@ This procedure needs no parameters.
 -- execute the following statement in sql window
 execute lila.is_alive;
 -- check data and note the process_id
-select * from lila_process where process_name = 'LILA Life Check';
+select * from lila_log where process_name = 'LILA Life Check';
 -- check details using the process_id
-select * from lila_process_detail where process_id = <process id>;
+select * from lila_log_detail where process_id = <process id>;
 ```
