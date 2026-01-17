@@ -137,6 +137,13 @@ create or replace PACKAGE BODY LILA AS
             sqlStmt := replace(sqlStmt, 'NEW_TABLE_NAME', p_TabNamePrefix);
             execute immediate sqlStmt;
 
+            sqlStmt := '
+			CREATE INDEX idx_lila_cleanup 
+			ON NEW_TABLE_NAME (process_name, process_end)';
+            sqlStmt := replace(sqlStmt, 'NEW_TABLE_NAME', p_TabNamePrefix);
+            execute immediate sqlStmt;
+
+
             -- Details table
             sqlStmt := '
             create table NEW_DETAIL_TABLE_NAME (
@@ -153,7 +160,12 @@ create or replace PACKAGE BODY LILA AS
             )';
             sqlStmt := replace(sqlStmt, 'NEW_DETAIL_TABLE_NAME', p_TabNamePrefix || '_DETAIL');
             execute immediate sqlStmt;
-
+            
+            sqlStmt := '
+			CREATE INDEX idx_lila_detail_master
+			ON NEW_DETAIL_TABLE_NAME (process_id)';
+            sqlStmt := replace(sqlStmt, 'NEW_DETAIL_TABLE_NAME', p_TabNamePrefix || '_DETAIL');
+            execute immediate sqlStmt;
         end if;
 
     exception      
@@ -257,7 +269,6 @@ create or replace PACKAGE BODY LILA AS
         where process_end <= sysdate - PH_DAYS_TO_KEEP
         and upper(process_name) = upper(''PH_PROCESS_NAME'')';
         
-
         sqlStatement := replacePlaceHolders(p_processId, sqlStatement, p_processName, null, null, null, null, null, null);
         sqlStatement := replace(sqlStatement, 'PH_DAYS_TO_KEEP', to_char(p_daysToKeep));
 
