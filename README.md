@@ -41,6 +41,12 @@ LILA is developed by a developer who hates over-engineered tools. Focus: 5 minut
 >LILA comes ready to test right out of the box, meaning no custom implementation or coding is required to see the framework in action immediately after setup.
 >Also please have a look to the sample application 'learn_lila' (source/sample).
 
+### Demo
+After setup try this in sql editor:
+```sql
+exec lila.is_alive;
+```
+
 ---
 ## Logging
 LILA persists different information about your processes.
