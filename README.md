@@ -42,12 +42,15 @@ LILA is developed by a developer who hates over-engineered tools. Focus: 5 minut
 >Also please have a look to the sample application 'learn_lila' (source/sample).
 
 ### Demo
-After setup try this in sql editor:
+Execute the following statement in the SQL editor (optionally activate dbms-output for your session beforehand):
 ```sql
 exec lila.is_alive;
+select * from lila_log;
 ```
+If you have activated dbms output, you will receive an additional message there.
 
 ---
+
 ## Logging
 LILA persists different information about your processes.
 For simplicity, all logs are stored in two tables.
