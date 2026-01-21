@@ -1,7 +1,7 @@
 # Setting up LILA
 
 ## Overview
-Since LILA is a pl/sql package, only a few steps are required for commissioning and use.
+Since LILA is a PL/SQL package, only a few steps are required for commissioning and use.
 
 Ultimately, three database objects are required:
 * Two Tables
