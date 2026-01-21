@@ -28,9 +28,6 @@ GRANT CREATE SESSION TO USER_NAME;
 GRANT EXECUTE ON UTL_HTTP TO USER_NAME;
 ```
 
-## Login to database schema
-Within your preferred sql tool (e.g. sqlDeveloper) login to the desired database schema.
-
 ## Creating Package
 Find the package under https://github.com/dirkgermany/LILA-Logging/tree/main/source/package.
 
@@ -39,7 +36,7 @@ After that you can see the package in your object tree (perhaps after refreshing
 
 That's it. If you got exceptions when executing the scripts please see [`Trouble Shooting`](#trouble-shooting).
 
-
+---
 ## Trouble shooting
 Hopefully not, but errors may occur when using LILA for the first time.
 
