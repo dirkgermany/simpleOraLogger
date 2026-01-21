@@ -16,7 +16,7 @@ create or replace PACKAGE BODY LEARN_LILA AS
             p_processName   => 'simple sample',
             p_logLevel      => lila.logLevelInfo,
             p_daysToKeep    => 1,
-            p_TabNameMaster => 'learn_lila_log'
+            p_tabNameMaster => 'learn_lila_log'
         );
         lila.info(lProcessId, 'simple sample little step');
         lila.set_process_status(lProcessId, 1, 'Perfect!');
