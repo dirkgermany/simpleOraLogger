@@ -18,10 +18,6 @@ LILA utilizes autonomous transactions to ensure that all log entries are persist
 
 LILA is developed by a developer who hates over-engineered tools. Focus: 5 minutes to integrate, 100% visibility.
 
->**Project Status**: Production Ready
->
->Although LILA was only recently released as Open Source (v1.1.x), the framework was developed for and successfully deployed in real-world production environments before its migration to GitHub. Its core logic has already proven its reliability in practice. Version 1.1 represents its readiness for professional use, now enhanced with advanced features like API-based monitoring and flexible table management.
-
 ## Content
 - [Key features](#key-features)
 - [Fast integration](#fast-integration)
@@ -46,7 +42,7 @@ LILA is developed by a developer who hates over-engineered tools. Focus: 5 minut
 * Analysing or monitoring your process requires simple sql statements or API requests
 
 >LILA comes ready to test right out of the box, so no custom implementation or coding is required to see the framework in action immediately after setup.
->Also please have a look to the sample application 'learn_lila' (source/sample).
+>Also please have a look to the sample applications 'learn_lila' (source/demo).
 
 ### Demo
 Execute the following statement in the SQL editor (optionally activate dbms-output for your session beforehand):
