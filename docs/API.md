@@ -153,6 +153,7 @@ This mechanism is supports the monitoring features.
 The NEW_SESSION function starts the logging session for a process. Three function signatures are available for different scenarios.
 Each variant offers the option of choosing a different name for the log tables.
 
+\
 *Option 1*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
@@ -160,6 +161,7 @@ Each variant offers the option of choosing a different name for the log tables.
 | p_logLevel | NUMBER | determines the level of detail in *detail table* (see above) | [`M`](#m)
 | p_TabNameMaster | VARCHAR2 | optional prefix of the LOG table names (see above) | [`O`](#o)
 
+\
 *Option 2*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
@@ -168,6 +170,7 @@ Each variant offers the option of choosing a different name for the log tables.
 | p_daysToKeep | NUMBER | max. age of entries in days; if not NULL, all entries older than p_daysToKeep and whose process name = p_processName (not case sensitive) are deleted | [`N`](#n)
 | p_TabNameMaster | VARCHAR2 | optional prefix of the LOG table names (see above) | [`O`](#o)
 
+\
 *Option 3*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
@@ -213,14 +216,34 @@ gProcessId := lila.new_session('my application', lila.logLevelWarn, 100, 30, 'MY
 #### Procedure CLOSE_SESSION
 Ends a logging session with optional final informations. Two function signatures are available for different scenarios.
 * Option 1 is a simple close without any additional information about the process.
-* Option 2 allows adding various informations to the ending process.
+* Option 2-4 allows adding various informations to the ending process.
+
+
 
 *Option 1*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
 | p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
 
+\
 *Option 2*
+| Parameter | Type | Description | Required
+| --------- | ---- | ----------- | -------
+| p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
+| p_processInfo | VARCHAR2 | Final information about the process (e.g., a readable status) | [`N`](#n)
+| p_status | NUMBER | Final status of the process (freely selected by the calling package) | [`N`](#n)
+
+\
+*Option 3*
+| Parameter | Type | Description | Required
+| --------- | ---- | ----------- | -------
+| p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
+| p_stepsDone | NUMBER | Number of work steps that were actually processed. This value must be managed by the calling package | [`N`](#n)
+| p_processInfo | VARCHAR2 | Final information about the process (e.g., a readable status) | [`N`](#n)
+| p_status | NUMBER | Final status of the process (freely selected by the calling package) | [`N`](#n)
+
+\
+*Option 4*
 | Parameter | Type | Description | Required
 | --------- | ---- | ----------- | -------
 | p_processId | NUMBER | ID of the process to which the session applies | [`M`](#m)
@@ -229,6 +252,7 @@ Ends a logging session with optional final informations. Two function signatures
 | p_processInfo | VARCHAR2 | Final information about the process (e.g., a readable status) | [`N`](#n)
 | p_status | NUMBER | Final status of the process (freely selected by the calling package) | [`N`](#n)
 
+\
 **Syntax and Examples**
 ```sql
 -- Syntax
@@ -236,7 +260,12 @@ Ends a logging session with optional final informations. Two function signatures
 -- Option 1
 PROCEDURE CLOSE_SESSION(p_processId NUMBER)
 -- Option 2
+PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_processInfo VARCHAR2, p_status NUMBER)
+-- Option 3
+PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_stepsDone NUMBER, p_processInfo VARCHAR2, p_status NUMBER)
+-- Option 4
 PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_stepsToDo NUMBER, p_stepsDone NUMBER, p_processInfo VARCHAR2, p_status NUMBER)
+
 
 -- Usage
 --------
