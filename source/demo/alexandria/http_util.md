@@ -1,4 +1,4 @@
-# Demo with http_util of "Alexandria plsql/sql utility library"
+# Demo with "http_util" (Alexandria plsql/sql utility library)
 
 ## About
 **LILA: LILA Integrated Logging Architecture**
