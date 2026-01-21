@@ -3,6 +3,7 @@ create or replace PACKAGE BODY LEARN_LILA AS
     /*
         First steps:
         * open logging session
+        * use dedicated log table
         * log with level info
         * write status of process
         * close logging session
