@@ -78,7 +78,6 @@ create or replace PACKAGE BODY LILA AS
         when OTHERS then
             DBMS_OUTPUT.PUT_LINE('DDL-Fehler bei: ' || p_sqlStmt);
             DBMS_OUTPUT.PUT_LINE(SQLERRM);
-            RAISE;
     end;
     
     -- Checks if a database sequence exists
