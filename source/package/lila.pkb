@@ -1,5 +1,8 @@
 create or replace PACKAGE BODY LILA AS
 
+    ---------------------------------------------------------------
+    -- Sessions and Processes
+    ---------------------------------------------------------------
     -- Record representing the internal session
     TYPE t_session_rec IS RECORD (
         process_id      NUMBER(19,0),
@@ -8,6 +11,15 @@ create or replace PACKAGE BODY LILA AS
         tabName_master  VARCHAR2(100)
     );
 
+    -- Table for several processes
+    TYPE t_session_tab IS TABLE OF t_session_rec;
+    g_sessionList t_session_tab := null;
+    
+    -- Indexes for lists
+    TYPE t_idx IS TABLE OF PLS_INTEGER INDEX BY BINARY_INTEGER;
+    v_indexSession t_idx;    
+    
+    -- Record representing the process (internal and external)
     TYPE t_process_rec IS RECORD (
         id      NUMBER(19,0),
         process_name varchar2(100),
@@ -20,18 +32,36 @@ create or replace PACKAGE BODY LILA AS
         info CLOB
     );
 
-    -- Table for several processes
-    TYPE t_session_tab IS TABLE OF t_session_rec;
-    g_sessionList t_session_tab := null;
+    ---------------------------------------------------------------
+    -- Monitoring
+    ---------------------------------------------------------------
+    TYPE t_monitor_rec IS RECORD (
+        process_id number(19,0),
+        action_name varchar2(25),
+        steps_done number,
+        max_steps number,
+        avg_action_duration number      
+    );
+   
+    TYPE t_monitor_tab IS TABLE OF t_monitor_rec;
+    g_monitorList t_monitor_tab := null;
 
-    -- Index for entries in process list
-    TYPE t_search_idx IS TABLE OF PLS_INTEGER INDEX BY BINARY_INTEGER;
-    v_index t_search_idx;
+    TYPE t_idx_monitor IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(100);
+    v_indexSession_monitor t_idx_monitor;
+   
+    g_max_monitor_size CONSTANT PLS_INTEGER := 1000; -- Limit
+    g_monitor_ptr      PLS_INTEGER := 0;             -- Aktueller Schreib-Zeiger    
 
---    cr constant varchar2(2) := chr(13) || chr(10);
+    ---------------------------------------------------------------
+    -- Placeholders for tables
+    ---------------------------------------------------------------
     PARAM_MASTER_TABLE constant varchar2(20) := 'PH_MASTER_TABLE';
     PARAM_DETAIL_TABLE constant varchar2(20) := 'PH_DETAIL_TABLE';
     SUFFIX_DETAIL_NAME constant varchar2(16) := '_DETAIL';
+    
+    ---------------------------------------------------------------
+    -- Functions and Procedures
+    ---------------------------------------------------------------
     function getSessionRecord(p_processId number) return t_session_rec;
 
     /*
@@ -241,7 +271,128 @@ create or replace PACKAGE BODY LILA AS
         return processRec;
     end;
 
-	------------------------------------------------------------------------------------------------
+
+    /*
+        Methods dedicated to the g_monitorList
+    */
+    ------------------------------------------------------------------------------------------------
+    -- Hilfsfunktion (intern): Erzeugt den einheitlichen Key für den Index
+    ------------------------------------------------------------------------------------------------
+    function buildMonitorKey(p_processId number, p_actionName varchar2) return varchar2
+    is
+    begin
+        return to_char(p_processId) || '_' || p_actionName;
+    end;
+
+    ------------------------------------------------------------------------------------------------
+    -- Delivers a record of the monitor list by process_id and action_name
+    ------------------------------------------------------------------------------------------------
+    function getMonitorRecord(p_processId number, p_actionName varchar2) return t_monitor_rec
+    as
+        v_key     varchar2(100);
+        listIndex number;
+    begin
+        v_key := buildMonitorKey(p_processId, p_actionName);
+        
+        if not v_indexSession_monitor.EXISTS(v_key) THEN
+            -- Datentyp RECORD kann nicht auf IS NULL geprüft werden, 
+            -- daher wird ein initialisierter Record geliefert (Felder sind NULL).
+            return null; 
+        end if;
+
+        listIndex := v_indexSession_monitor(v_key);
+        return g_monitorList(listIndex);
+    end;
+
+    ------------------------------------------------------------------------------------------------
+    -- Update a stored record in the monitor list
+    ------------------------------------------------------------------------------------------------
+    procedure updateMonitorRecord(p_monitorRecord t_monitor_rec)
+    as
+        v_key     varchar2(100);
+        listIndex number;
+    begin
+        v_key := buildMonitorKey(p_monitorRecord.process_id, p_monitorRecord.action_name);
+        
+        if v_indexSession_monitor.EXISTS(v_key) then
+            listIndex := v_indexSession_monitor(v_key);
+            g_monitorList(listIndex) := p_monitorRecord;
+        end if;
+    end;
+
+    ------------------------------------------------------------------------------------------------
+    -- Removes a record from the monitor list
+    ------------------------------------------------------------------------------------------------
+    procedure removeMonitor(p_processId number, p_actionName varchar2)
+    as
+        v_key     varchar2(100);
+        v_old_idx PLS_INTEGER;
+    begin
+        v_key := buildMonitorKey(p_processId, p_actionName);
+        
+        if v_indexSession_monitor.EXISTS(v_key) then        
+            v_old_idx := v_indexSession_monitor(v_key);            
+            g_monitorList.DELETE(v_old_idx);            
+            v_indexSession_monitor.DELETE(v_key);     
+        end if;       
+    end;
+
+    ------------------------------------------------------------------------------------------------
+    -- Creating and adding/updating a record in the monitor list
+    ------------------------------------------------------------------------------------------------
+    procedure insertMonitor (
+        p_processId   number, 
+        p_actionName  varchar2, 
+        p_stepsDone   number, 
+        p_maxSteps    number,
+        p_avgDuration number
+    )
+    as
+        v_new_idx PLS_INTEGER;
+        v_key     varchar2(100);
+        v_old_key varchar2(100);
+    begin
+        v_key := buildMonitorKey(p_processId, p_actionName);
+
+        if g_monitorList is null then
+            g_monitorList := t_monitor_tab(); 
+        end if;
+
+        -- 1. Prüfen: Existiert dieser spezifische Monitor bereits?
+        if v_indexSession_monitor.EXISTS(v_key) then
+            v_new_idx := v_indexSession_monitor(v_key);
+        else
+            -- 2. Wenn NEU: Haben wir das Limit erreicht?
+            if g_monitorList.COUNT < g_max_monitor_size then
+                -- Liste wächst noch bis zum Limit
+                g_monitorList.extend;
+                v_new_idx := g_monitorList.last;
+                g_monitor_ptr := v_new_idx; -- Zeiger wandert mit
+            else
+                -- LIMIT ERREICHT: Round-Robin Logik
+                -- Zeiger auf die nächste Position setzen (1 bis g_max_monitor_size)
+                g_monitor_ptr := mod(g_monitor_ptr, g_max_monitor_size) + 1;
+                v_new_idx := g_monitor_ptr;
+
+                -- WICHTIG: Den alten Index-Eintrag entfernen, der auf diese Stelle zeigte!
+                -- Wir müssen herausfinden, welcher Key vorher an dieser Stelle im Array saß
+                v_old_key := buildMonitorKey(g_monitorList(v_new_idx).process_id, 
+                                            g_monitorList(v_new_idx).action_name);
+                v_indexSession_monitor.DELETE(v_old_key);
+            end if;
+        end if;
+
+        -- 3. Daten an der ermittelten Position (v_new_idx) schreiben
+        g_monitorList(v_new_idx).process_id          := p_processId;
+        g_monitorList(v_new_idx).action_name         := p_actionName;
+        g_monitorList(v_new_idx).steps_done          := p_stepsDone;
+        g_monitorList(v_new_idx).max_steps           := p_maxSteps;
+        g_monitorList(v_new_idx).avg_action_duration := p_avgDuration;
+
+        -- 4. Neuen Index-Eintrag setzen
+        v_indexSession_monitor(v_key) := v_new_idx;
+    end;
+
 
     /*
 		Methods dedicated to the g_sessionList
@@ -256,11 +407,11 @@ create or replace PACKAGE BODY LILA AS
     as
         listIndex number;
     begin
-        if not v_index.EXISTS(p_processId) THEN
+        if not v_indexSession.EXISTS(p_processId) THEN
             return null;
         end if;
 
-        listIndex := v_index(p_processId);
+        listIndex := v_indexSession(p_processId);
         return g_sessionList(listIndex);
     end;
 
@@ -271,7 +422,7 @@ create or replace PACKAGE BODY LILA AS
     as
         listIndex number;
     begin
-        listIndex := v_index(p_sessionRecord.process_id);
+        listIndex := v_indexSession(p_sessionRecord.process_id);
         g_sessionList(listIndex) := p_sessionRecord;
     end;
 
@@ -284,13 +435,13 @@ create or replace PACKAGE BODY LILA AS
         v_old_idx PLS_INTEGER;
     begin
         -- check if process exists
-        if v_index.EXISTS(p_processId) then        
+        if v_indexSession.EXISTS(p_processId) then        
             -- get list index
-            v_old_idx := v_index(p_processId);            
+            v_old_idx := v_indexSession(p_processId);            
             -- delete from internal list
             g_sessionList.DELETE(v_old_idx);            
             -- delete index
-            v_index.DELETE(p_processId);     
+            v_indexSession.DELETE(p_processId);     
         end if;       
     end;
 
@@ -310,7 +461,7 @@ create or replace PACKAGE BODY LILA AS
             g_sessionList.extend;
             v_new_idx := g_sessionList.last;
         else
-            v_new_idx := v_index(p_processId);
+            v_new_idx := v_indexSession(p_processId);
         end if;
 
         g_sessionList(v_new_idx).process_id      := p_processId;
@@ -318,7 +469,7 @@ create or replace PACKAGE BODY LILA AS
         g_sessionList(v_new_idx).log_level       := p_logLevel;
         g_sessionList(v_new_idx).tabName_master  := p_tabName;
 
-        v_index(p_processId) := v_new_idx;
+        v_indexSession(p_processId) := v_new_idx;
     end;
 
 	------------------------------------------------------------------------------------------------
