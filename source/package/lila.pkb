@@ -240,7 +240,6 @@ create or replace PACKAGE BODY LILA AS
 	    when others then
 	        if t_rc%isopen then close t_rc; end if;
 	        rollback; -- Auch im Fehlerfall die Transaktion beenden
-	        raise;
 	end;
 
 	------------------------------------------------------------------------------------------------
@@ -515,6 +514,11 @@ create or replace PACKAGE BODY LILA AS
         execute immediate sqlStatement using p_processId, sessionRec.counter_details, p_stepInfo, p_logLevel,
             SYS_CONTEXT('USERENV','SESSION_USER'), SYS_CONTEXT('USERENV','HOST');
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
+
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -544,6 +548,9 @@ create or replace PACKAGE BODY LILA AS
         execute immediate sqlStatement using p_processId, sessionRec.counter_details, p_stepInfo, p_logLevel,
             SYS_CONTEXT('USERENV','SESSION_USER'), SYS_CONTEXT('USERENV','HOST'), DBMS_UTILITY.FORMAT_CALL_STACK;         
         commit;
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -574,6 +581,10 @@ create or replace PACKAGE BODY LILA AS
             SYS_CONTEXT('USERENV', 'SESSION_USER'), SYS_CONTEXT('USERENV','HOST'),
             DBMS_UTILITY.FORMAT_ERROR_STACK, DBMS_UTILITY.FORMAT_ERROR_BACKTRACE, DBMS_UTILITY.FORMAT_CALL_STACK;
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 
@@ -631,7 +642,7 @@ create or replace PACKAGE BODY LILA AS
 
     -- Writes data to the log detail table.
     -- Enables independency of log levels to the calling script.
-    procedure LOG_DETAIL(p_processId number, p_stepInfo varchar2, p_logLevel number)
+    procedure LOG_DETAIL(p_processId number, p_stepInfo varchar2, p_logLevel PLS_INTEGER)
     as
     begin
         write_detail(p_processId, p_stepInfo, p_logLevel);
@@ -656,6 +667,10 @@ create or replace PACKAGE BODY LILA AS
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);        
         execute immediate sqlStatement using p_status, p_processId;
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -678,6 +693,10 @@ create or replace PACKAGE BODY LILA AS
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);        
         execute immediate sqlStatement using p_status, p_processInfo, p_processId;
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -697,6 +716,10 @@ create or replace PACKAGE BODY LILA AS
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);        
         execute immediate sqlStatement using p_stepsToDo, p_processId;
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -716,6 +739,10 @@ create or replace PACKAGE BODY LILA AS
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);        
         execute immediate sqlStatement using p_stepsDone, p_processId;
         commit;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 	------------------------------------------------------------------------------------------------
     
@@ -739,7 +766,7 @@ create or replace PACKAGE BODY LILA AS
     
 	------------------------------------------------------------------------------------------------
 
-    function GET_STEPS_DONE(p_processId NUMBER) return PLS_INTEGER
+    FUNCTION GET_STEPS_DONE(p_processId NUMBER) return PLS_INTEGER
     as
     begin
         return getProcessRecord(p_processId).steps_done;
@@ -747,7 +774,7 @@ create or replace PACKAGE BODY LILA AS
 
 	------------------------------------------------------------------------------------------------
 
-    function GET_STEPS_TODO(p_processId NUMBER) return PLS_INTEGER
+    FUNCTION GET_STEPS_TODO(p_processId NUMBER) return PLS_INTEGER
     as
     begin
         return getProcessRecord(p_processId).steps_todo;
@@ -846,6 +873,12 @@ create or replace PACKAGE BODY LILA AS
 	        commit;
         end if;
         g_sessionList.delete(p_processId);
+
+		exception
+		    when others then
+		        if t_rc%isopen then close t_rc; end if;
+		        rollback; -- Auch im Fehlerfall die Transaktion beenden
+
         */
     end;
 
@@ -908,11 +941,15 @@ create or replace PACKAGE BODY LILA AS
 
             updateCount := DBMS_SQL.EXECUTE(sqlCursor);
             DBMS_SQL.CLOSE_CURSOR(sqlCursor);
-	        commit;
         end if;
+        commit;
         
         -- Eintrag aus internem Speicher entfernen
         g_sessionList.delete(p_processId);
+if v_indexSession.EXISTS(p_processId) then
+    g_sessionList.delete(v_indexSession(p_processId));
+    v_indexSession.delete(p_processId); -- Auch den Index-Eintrag entfernen!
+end if;
         
     EXCEPTION
         WHEN OTHERS THEN
@@ -920,7 +957,7 @@ create or replace PACKAGE BODY LILA AS
                 DBMS_SQL.CLOSE_CURSOR(sqlCursor);
             END IF;
             sqlCursor := null;
-
+			rollback;
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -968,10 +1005,13 @@ create or replace PACKAGE BODY LILA AS
             )';
             sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, p_TabNameMaster);
 	        execute immediate sqlStatement using pProcessId, p_processName, p_stepsToDo;     
-
 	        commit;
         end if;
         return pProcessId;
+
+	exception
+	    when others then
+	        rollback; -- Auch im Fehlerfall die Transaktion beenden
     end;
 
 	------------------------------------------------------------------------------------------------
@@ -1046,6 +1086,12 @@ create or replace PACKAGE BODY LILA AS
 	        commit;
         end if;
         return pProcessId;
+
+		exception
+		    when others then
+		        if t_rc%isopen then close t_rc; end if;
+		        rollback; -- Auch im Fehlerfall die Transaktion beenden
+
     */
     end;
     
