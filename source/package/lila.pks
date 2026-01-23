@@ -10,6 +10,22 @@ create or replace PACKAGE LILA AS
     logLevelWarn    CONSTANT PLS_INTEGER := 2;
     logLevelInfo    CONSTANT PLS_INTEGER := 4;
     logLevelDebug   CONSTANT PLS_INTEGER := 8;
+    
+    -- ================================
+    -- Record representing process data
+    -- ================================
+    TYPE t_process_rec IS RECORD (
+        id      NUMBER(19,0),
+        process_name varchar2(100),
+        process_start TIMESTAMP,
+        process_end TIMESTAMP,
+        last_update TIMESTAMP,
+        steps_todo PLS_INTEGER,
+        steps_done PLS_INTEGER,
+        status PLS_INTEGER,
+        info CLOB
+    );
+
 
     ------------------------------
     -- Life cycle of a log session
@@ -33,14 +49,14 @@ create or replace PACKAGE LILA AS
 
     -------------------------------
     -- Request process informations
+    -------------------------------
     FUNCTION GET_STEPS_DONE(p_processId NUMBER) RETURN PLS_INTEGER;
     FUNCTION GET_STEPS_TODO(p_processId NUMBER) RETURN PLS_INTEGER;
     FUNCTION GET_PROCESS_START(p_processId NUMBER) RETURN TIMESTAMP;
     FUNCTION GET_PROCESS_END(p_processId NUMBER) RETURN TIMESTAMP;
     FUNCTION GET_PROCESS_STATUS(p_processId NUMBER) RETURN PLS_INTEGER;
     FUNCTION GET_PROCESS_INFO(p_processId NUMBER) RETURN VARCHAR2;
-
-    -------------------------------
+    FUNCTION GET_PROCESS_DATA(p_processId NUMBER) RETURN t_process_rec;
 
     ------------------
     -- Logging details
