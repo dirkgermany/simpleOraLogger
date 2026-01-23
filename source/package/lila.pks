@@ -15,15 +15,15 @@ create or replace PACKAGE LILA AS
     -- Record representing process data
     -- ================================
     TYPE t_process_rec IS RECORD (
-        id      NUMBER(19,0),
-        process_name varchar2(100),
-        process_start TIMESTAMP,
-        process_end TIMESTAMP,
-        last_update TIMESTAMP,
-        steps_todo PLS_INTEGER,
-        steps_done PLS_INTEGER,
-        status PLS_INTEGER,
-        info CLOB
+        id              NUMBER(19,0),
+        process_name    varchar2(100),
+        process_start   TIMESTAMP,
+        process_end     TIMESTAMP,
+        last_update     TIMESTAMP,
+        steps_todo      PLS_INTEGER,
+        steps_done      PLS_INTEGER,
+        status          PLS_INTEGER,
+        info            CLOB
     );
 
 
