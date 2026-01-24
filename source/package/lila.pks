@@ -1,6 +1,6 @@
 create or replace PACKAGE LILA AS
 
-    /* Complete Doc and last version see https://github.com/dirkgermany/LILA */
+    /* Complete Doc and last version see https://github.com/dirkgermany/LILA-Logging/docs */
 
     -- =========
     -- Log Level
@@ -23,13 +23,22 @@ create or replace PACKAGE LILA AS
         steps_todo      PLS_INTEGER,
         steps_done      PLS_INTEGER,
         status          PLS_INTEGER,
-        info            CLOB
+        info            CLOB,
+        tabNameMaster   VARCHAR2(100)
     );
 
+    TYPE t_session_init IS RECORD (
+        processName VARCHAR2(100),
+        logLevel PLS_INTEGER,
+        stepsToDo PLS_INTEGER,
+        daysToKeep PLS_INTEGER,
+        tabNameMaster VARCHAR2(100) DEFAULT 'LILA_LOG'
+    );
 
     ------------------------------
     -- Life cycle of a log session
     ------------------------------
+    FUNCTION NEW_SESSION(p_session_init t_session_init) RETURN NUMBER;
     FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel PLS_INTEGER, p_tabNameMaster VARCHAR2 default 'LILA_LOG') RETURN NUMBER;
     FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel PLS_INTEGER, p_daysToKeep NUMBER, p_tabNameMaster VARCHAR2 default 'LILA_LOG') RETURN NUMBER;
     FUNCTION NEW_SESSION(p_processName VARCHAR2, p_logLevel PLS_INTEGER, p_stepsToDo NUMBER, p_daysToKeep NUMBER, p_tabNameMaster VARCHAR2 DEFAULT 'LILA_LOG') RETURN NUMBER;
@@ -79,8 +88,5 @@ create or replace PACKAGE LILA AS
     ----------
     -- Check if LILA works
     PROCEDURE IS_ALIVE;
-
-    -- feel free
-    FUNCTION test(p_processId NUMBER) RETURN VARCHAR2;
 
 END LILA;
