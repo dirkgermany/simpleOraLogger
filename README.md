@@ -34,7 +34,7 @@ LILA is developed by a developer who hates over-engineered tools. Focus: 5 minut
 5. **Smart Context Capture**: Automatically records ERR_STACK,  ERR_BACKTRACE, and ERR_CALLSTACK based on log level—deep insights with zero manual effort
 6. **Optional self-cleaning**: Automatically purges expired logs per application during session start—no background jobs or schedulers required
 7. **Future Ready**: Built for the latest Oracle 26ai (2026), and fully tested with existing 19c environment
-8. **Small Footprint**: Less than 700 lines of logical PL/SQL code ensures simple quality and security control, fast compilation, zero bloat and minimal Shared Pool utilization (reducing memory pressure and fragmentation)
+8. **Small Footprint**:  ~1k lines of logical PL/SQL code ensures simple quality and security control, fast compilation, zero bloat and minimal Shared Pool utilization (reducing memory pressure and fragmentation)
 
 ## Fast integration
 * Setting up LILA means creating a package by copy&paste (refer [documentation file "setup.md"](docs/setup.md))
