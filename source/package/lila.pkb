@@ -485,7 +485,31 @@ create or replace PACKAGE BODY LILA AS
         end if;
         return 0;
     end;
-
+    
+    --------------------------------------------------------------------------
+    -- Calculation average time used
+    --------------------------------------------------------------------------
+    function calculate_avg(
+        p_old_avg    number,
+        p_curr_count pls_integer,
+        p_new_value  number
+    ) return number 
+    is
+        v_meas_count pls_integer;
+    begin
+        -- Die Anzahl der Intervalle ist die Anzahl der bisherigen Punkte
+        v_meas_count := p_curr_count;
+    
+        -- Erster Messwert: Der Durchschnitt ist der Wert selbst
+        if v_meas_count = 1 then
+            return p_new_value;
+        end if;
+    
+        -- Gleitender Durchschnitt über n Intervalle
+        -- Formel: ((Schnitt_alt * (n-1)) + Wert_neu) / n
+        return ((p_old_avg * (v_meas_count - 1)) + p_new_value) / v_meas_count;
+    end;
+    
     --------------------------------------------------------------------------
     -- Creating and adding/updating a record in the monitor list
     --------------------------------------------------------------------------
@@ -499,15 +523,20 @@ create or replace PACKAGE BODY LILA AS
         v_history    t_action_history_tab;
         v_new_rec    t_monitor_rec;
     begin
-        -- 1. Schnelle Berechnung über Cache (kein Array-Zugriff!)
         if v_cache_last.EXISTS(v_key) then
-            -- in Millisekunden
             v_used_time := get_ms_diff(v_cache_last(v_key), v_now); 
+            
+            -- Berechnung delegieren: 
+            -- Wir übergeben den alten Schnitt und die aktuelle Punktanzahl (v_cache_count)
+            v_new_avg   := calculate_avg(
+                               p_old_avg    => v_cache_avg(v_key),
+                               p_curr_count => v_cache_count(v_key),
+                               p_new_value  => v_used_time
+                           );
+                           
             v_new_count := v_cache_count(v_key) + 1;
-            -- Gleitender Durchschnitt: ((alt * count) + neu) / (count + 1)
-            v_new_avg   := ((v_cache_avg(v_key) * v_cache_count(v_key)) + v_used_time) / v_new_count;
         else
-            v_used_time := null; -- Erster Eintrag
+            v_used_time := null;
             v_new_avg   := 0;
             v_new_count := 1;
         end if;
