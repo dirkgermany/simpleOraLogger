@@ -16,6 +16,9 @@
   - Utilizes `UTL_CALL_STACK` for deep context analysis.
   - Implements a high-performance buffering mechanism.
   - Focuses on "Observability" and "Performance Metrics" (Step Monitoring).
+  - **Performance Metrics:** Implements `MARK_STEP` to monitor execution time, averages, and iteration counts, strictly isolated by **action names**.
+  - **Granularity:** All metrics are calculated and stored per-action, allowing independent analysis of different business logic segments.
+
   
 ## Extensibility & Adapters
 - **Design Philosophy:** LILA is designed as a decoupled core framework. 
