@@ -5,11 +5,12 @@ create or replace PACKAGE LILA AS
     -- =========
     -- Log Level
     -- =========
-    logLevelSilent  CONSTANT PLS_INTEGER := 0;
-    logLevelError   CONSTANT PLS_INTEGER := 1;
-    logLevelWarn    CONSTANT PLS_INTEGER := 2;
-    logLevelInfo    CONSTANT PLS_INTEGER := 4;
-    logLevelDebug   CONSTANT PLS_INTEGER := 8;
+    logLevelSilent      CONSTANT PLS_INTEGER := 0;
+    logLevelError       CONSTANT PLS_INTEGER := 1;
+    logLevelWarn        CONSTANT PLS_INTEGER := 2;
+    logLevelMonitor     CONSTANT PLS_INTEGER := 3;
+    logLevelInfo        CONSTANT PLS_INTEGER := 4;
+    logLevelDebug       CONSTANT PLS_INTEGER := 8;
     
     -- ================================
     -- Record representing process data
@@ -70,11 +71,10 @@ create or replace PACKAGE LILA AS
     ------------------
     -- Logging details
     ------------------
-    PROCEDURE INFO(p_processId NUMBER, p_stepInfo VARCHAR2);
-    PROCEDURE DEBUG(p_processId NUMBER, p_stepInfo VARCHAR2);
-    PROCEDURE WARN(p_processId NUMBER, p_stepInfo VARCHAR2);
-    PROCEDURE ERROR(p_processId NUMBER, p_stepInfo VARCHAR2);
-    PROCEDURE LOG_DETAIL(p_processId NUMBER, p_stepInfo VARCHAR2, p_logLevel PLS_INTEGER);
+    PROCEDURE INFO(p_processId NUMBER, p_logText VARCHAR2);
+    PROCEDURE DEBUG(p_processId NUMBER, p_logText VARCHAR2);
+    PROCEDURE WARN(p_processId NUMBER, p_logText VARCHAR2);
+    PROCEDURE ERROR(p_processId NUMBER, p_logText VARCHAR2);
     
     -------------
     -- Monitoring
@@ -88,5 +88,6 @@ create or replace PACKAGE LILA AS
     ----------
     -- Check if LILA works
     PROCEDURE IS_ALIVE;
+
 
 END LILA;
