@@ -60,13 +60,16 @@ By leveraging the `UTL_CALL_STACK`, LILA automatically captures the exact progra
 #### High-Performance Buffering
 To minimize the impact on the main application’s overhead, LILA features an internal buffering system. Log writing is processed efficiently, offering a decisive performance advantage over simple, row-by-row logging methods, especially in high-load production environments.
 
+#### Robust & Non-Invasive (Silent Mode)
+LILA is designed to be "invisible." The framework ensures that an internal error during the logging process (e.g., table space issues or configuration errors) doesn't crash the calling application logic. Exceptions within LILA are caught and handled internally, prioritizing the stability of your business transaction over the logging activity itself.
+
 #### Built-in Extensibility (Adapters)
 LILA's decoupled architecture is designed for seamless integration with modern monitoring stacks. Its structured data format allows for the easy creation of adapters:
 *   **Oracle APEX:** Use native SQL queries to power APEX Charts and Dashboards for real-time application monitoring.
 *   **Grafana:** Connect LILA via **ORDS (Oracle REST Data Services)** to visualize performance trends and system health in Grafana dashboards.
 *   **Custom Adapters:** The relational core can be extended for any REST-based or SQL-based reporting tool without modifying the core logging engine.
 
-### Observability & AI Readiness
+### High-Efficiency Monitoring
 
 #### Real-Time Performance Metrics
 LILA is more than just a logging tool. Using the `MARK_STEP` functionality, named actions can be monitored independently. The framework automatically tracks metrics **per action**:
@@ -83,7 +86,7 @@ Instead of performing expensive aggregations across millions of log records for 
 By avoiding file system dependencies (`UTL_FILE`) and focusing on native database features, LILA is 100% compatible with **Oracle Autonomous Database** and optimized for scalable cloud infrastructures in 2026.
 
 #### Developer Experience (DX)
-LILA promotes a standardized error-handling and monitoring culture within development teams. Its easy-to-use API allows for a "zero-config" start, enabling developers to implement professional observability in
+LILA promotes a standardized error-handling and monitoring culture within development teams. Its easy-to-use API allows for a "zero-config" start, enabling developers to implement professional observability in just a few minutes. No complex DBA grants or extensive infrastructure preparations are required—just deploy the package and start logging immediately.
 
 ---
 ## Demo
