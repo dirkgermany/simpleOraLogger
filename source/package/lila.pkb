@@ -103,7 +103,6 @@ create or replace PACKAGE BODY LILA AS
     function getSessionRecord(p_processId number) return t_session_rec;
 
     /*
-        Internal methods.
         Internal methods are written in lowercase and camelCase
     */
     
@@ -823,71 +822,6 @@ create or replace PACKAGE BODY LILA AS
 
 	--------------------------------------------------------------------------
 
-	/*
-		Isolation Transactions
-	*/
-/*
-    -- Writes a record to the details log table and marks it with the log level
-    procedure persist_detail(p_processId number, p_tableName varchar2, p_counterDetail number, p_stepInfo varchar2, p_logLevel PLS_INTEGER)
-    as 
-        pragma autonomous_transaction;
-        sqlStatement varchar2(2000);
-    begin        
-        sqlStatement := '
-        insert into PH_DETAIL_TABLE (
-            process_id, no, info, log_level,
-            session_user, host_name
-        )
-        values (
-            :PH_PROCESS_ID, :PH_COUNTER_DETAILS, :PH_STEP_INFO, :PH_LOG_LEVEL,
-            :PH_SESSION_USER, :PH_HOST_NAME
-        )';
-        sqlStatement := replaceNameDetailTable(sqlStatement, PARAM_DETAIL_TABLE, p_tableName);
-        execute immediate sqlStatement using p_processId, p_counterDetail, p_stepInfo, p_logLevel,
-            SYS_CONTEXT('USERENV','SESSION_USER'), SYS_CONTEXT('USERENV','HOST');
-        commit;
-
-	exception
-	    when others then
-	        rollback; -- Auch im Fehlerfall die Transaktion beenden
-            if should_raise_error(p_processId) then
-                RAISE;
-            end if;
-    end;
-*/
-	--------------------------------------------------------------------------
-/*
-    -- Writes a record to the details log table with debugging infos
-    -- Log level of the record is given by p_logLevel
-    procedure persist_debug_info(p_processId number, p_tableName varchar2, p_counterDetails number, p_stepInfo varchar2, p_logLevel number)
-    as 
-        pragma autonomous_transaction;
-        sqlStatement varchar2(4000);
-    begin
-        sqlStatement := '
-        insert into PH_DETAIL_TABLE (
-            process_id, no, info, log_level,
-            session_user, host_name, err_callstack
-        )
-        values (
-            :PH_PROCESS_ID, :PH_COUNTER_DETAILS, :PH_STEP_INFO, :PH_LOG_LEVEL,
-            :PH_SESSION_USER, :PH_HOST_NAME, :PH_ERR_CALLSTACK
-        )';
-        sqlStatement := replaceNameDetailTable(sqlStatement, PARAM_DETAIL_TABLE, p_tableName);
-        execute immediate sqlStatement using p_processId, p_counterDetails, p_stepInfo, p_logLevel,
-            SYS_CONTEXT('USERENV','SESSION_USER'), SYS_CONTEXT('USERENV','HOST'), DBMS_UTILITY.FORMAT_CALL_STACK;         
-        commit;
-        
-	exception
-	    when others then
-	        rollback; -- Auch im Fehlerfall die Transaktion beenden
-            if should_raise_error(p_processId) then
-                RAISE;
-            end if;
-    end;
-*/
-	--------------------------------------------------------------------------
-
     -- Updates the status of a log entry in the main log table.
     procedure persist_master_record(p_process_rec t_process_rec)
     as
@@ -950,40 +884,8 @@ create or replace PACKAGE BODY LILA AS
             end if;
     end;
 
-	--------------------------------------------------------------------------
 
-/*
-    -- Writes a record to the details log table with error infos
-    -- Log level of the record is given by p_logLevel
-    procedure persist_error_stack(p_processId number, p_tableName varchar2, p_counterDetails number, p_stepInfo varchar2, p_logLevel PLS_INTEGER)
-    as 
-        pragma autonomous_transaction;
-        sqlStatement varchar2(4000);
-    begin
-        sqlStatement := '
-        insert into PH_DETAIL_TABLE (
-            process_id, no, info, log_level,
-            session_user, host_name, err_stack, err_backtrace, err_callstack
-        )
-        values (
-            :PH_PROCESS_ID, :PH_COUNTER_DETAILS, :PH_STEP_INFO, :PH_LOG_LEVEL, 
-            :PH_SESSION_USER, :PH_HOST_NAME, :PH_ERR_STACK, :PH_ERR_BACKTRACE, :PH_ERR_CALLSTACK
-        )';
-        sqlStatement := replaceNameDetailTable(sqlStatement, PARAM_DETAIL_TABLE, p_tableName);
-        execute immediate sqlStatement using p_processId, p_counterDetails, p_stepInfo, p_logLevel,
-            SYS_CONTEXT('USERENV', 'SESSION_USER'), SYS_CONTEXT('USERENV','HOST'),
-            DBMS_UTILITY.FORMAT_ERROR_STACK, DBMS_UTILITY.FORMAT_ERROR_BACKTRACE, DBMS_UTILITY.FORMAT_CALL_STACK;
-        commit;
-
-	exception
-	    when others then
-	        rollback; -- Auch im Fehlerfall die Transaktion beenden
-            if should_raise_error(p_processId) then
-                RAISE;
-            end if;
-    end;    
-*/
-	--------------------------------------------------------------------------
+    -------------------------------------------------------------------
     -- Ends an earlier started logging session by the process ID.
     -- Important! Ignores if the process doesn't exist! No exception is thrown!
     procedure persist_close_session(p_processId number, p_tableName varchar2, p_stepsToDo number, p_stepsDone number, p_processInfo varchar2, p_status PLS_INTEGER)
@@ -1149,8 +1051,6 @@ create or replace PACKAGE BODY LILA AS
             v_callstacks.EXTEND; v_callstacks(v_callstacks.LAST) := substrb(g_log_groups(v_key)(i).err_callstack, 1, 4000);
         end loop;
 
-dbms_output.put_line('Daten wurden gesammelt');
-
         -- 4. Übergabe an die autonome Bulk-Persistierung
         persist_log_data(
             p_processId    => p_processId,
@@ -1190,7 +1090,6 @@ dbms_output.put_line('Daten wurden gesammelt');
         v_key varchar2(100) := to_char(p_processId);
         v_new_log t_log_buffer_rec;
     begin
-dbms_output.put_line('write_to_log_buffer');
         v_idx := v_indexSession(p_processId);
         g_sessionList(v_idx).serial_no := g_sessionList(v_idx).serial_no + 1;
         v_new_log.serial_no := g_sessionList(v_idx).serial_no;
@@ -1250,8 +1149,6 @@ dbms_output.put_line('write_to_log_buffer');
     as
     begin
         if v_indexSession.EXISTS(p_processId) and logLevelDebug <= g_sessionList(v_indexSession(p_processId)).log_level then
---            g_sessionList(v_idx).serial_no := g_sessionList(v_idx).serial_no + 1;
-
             write_to_log_buffer(
                 p_processId, 
                 logLevelDebug,
@@ -1260,7 +1157,6 @@ dbms_output.put_line('write_to_log_buffer');
                 null,
                 DBMS_UTILITY.FORMAT_CALL_STACK
             );
---            persist_debug_info(p_processId, g_sessionList(v_idx).tabName_master, g_sessionList(v_idx).serial_no, p_stepInfo, logLevelDebug);
         end if;
     end;
 
@@ -1271,8 +1167,6 @@ dbms_output.put_line('write_to_log_buffer');
     procedure INFO(p_processId number, p_stepInfo varchar2)
     as
     begin
-dbms_output.enable();
-dbms_output.put_line('info: ' || p_stepInfo);
         if v_indexSession.EXISTS(p_processId) and logLevelInfo <= g_sessionList(v_indexSession(p_processId)).log_level then
             write_to_log_buffer(
                 p_processId, 
@@ -1283,7 +1177,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
                 null
             );
         end if;
---        log_detail(p_processId, p_stepInfo, logLevelInfo);
     end;
 
 	--------------------------------------------------------------------------
@@ -1292,11 +1185,8 @@ dbms_output.put_line('info: ' || p_stepInfo);
     -- Details are adjusted to the error level
     procedure ERROR(p_processId number, p_stepInfo varchar2)
     as
-        v_idx PLS_INTEGER;
     begin
         if v_indexSession.EXISTS(p_processId) and logLevelError <= g_sessionList(v_indexSession(p_processId)).log_level then
-            v_idx := v_indexSession(p_processId);
---            g_sessionList(v_idx).serial_no := g_sessionList(v_idx).serial_no +1;
 
             write_to_log_buffer(
                 p_processId, 
@@ -1307,9 +1197,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
                 DBMS_UTILITY.FORMAT_CALL_STACK
             );
 
-            
-            
---            persist_error_stack(p_processId, g_sessionList(v_idx).tabName_master, g_sessionList(v_idx).serial_no, p_stepInfo, logLevelError);
             sync_master_state(p_processId, true);
             sync_logs(p_processId, true);
             sync_monitor(p_processId, true);
@@ -1339,10 +1226,8 @@ dbms_output.put_line('info: ' || p_stepInfo);
 
     procedure SET_PROCESS_STATUS(p_processId number, p_status PLS_INTEGER, p_processInfo varchar2)
     as
---        v_idx PLS_INTEGER;
     begin
        if v_indexSession.EXISTS(p_processId) then
---            v_idx := v_indexSession(p_processId);
             g_process_cache(p_processId).status := p_status;
             g_process_cache(p_processId).info := p_processInfo;
             sync_master_state(p_processId);
@@ -1353,10 +1238,8 @@ dbms_output.put_line('info: ' || p_stepInfo);
 
     procedure SET_PROCESS_STATUS(p_processId number, p_status PLS_INTEGER)
     as
---        v_idx PLS_INTEGER;
     begin
        if v_indexSession.EXISTS(p_processId) then
---            v_idx := v_indexSession(p_processId);
             g_process_cache(p_processId).status := p_status;
             sync_master_state(p_processId);
         end if;
@@ -1366,10 +1249,8 @@ dbms_output.put_line('info: ' || p_stepInfo);
     
      procedure SET_STEPS_TODO(p_processId number, p_stepsToDo number)
      as
---        v_idx PLS_INTEGER;
      begin
        if v_indexSession.EXISTS(p_processId) then
---            v_idx := v_indexSession(p_processId);
             g_process_cache(p_processId).steps_todo := p_stepsToDo;
             sync_master_state(p_processId);
         end if;
@@ -1397,7 +1278,7 @@ dbms_output.put_line('info: ' || p_stepInfo);
         sqlStatement varchar2(500);
         lStepCounter number;
         v_idx PLS_INTEGER;
-   begin
+    begin
         if v_indexSession.EXISTS(p_processId) then
             v_idx := v_indexSession(p_processId);
             g_sessionList(v_idx).steps_done := g_sessionList(v_idx).steps_done + 1;        
@@ -1412,7 +1293,7 @@ dbms_output.put_line('info: ' || p_stepInfo);
     as
     begin
         if v_indexSession.EXISTS(p_processId) then
-            return getProcessRecord(p_processId);
+            return g_process_cache(p_processId);
         else return null;
         end if;
     end;
@@ -1422,7 +1303,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).steps_done;
---            return getProcessRecord(p_processId).steps_done;
         else return 0;
         end if;
     end;
@@ -1434,7 +1314,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).steps_todo;
---            return getProcessRecord(p_processId).steps_todo;
         else return 0;
         end if;
     end;
@@ -1446,7 +1325,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).process_start;
---            return getProcessRecord(p_processId).process_start;
         else return null;
         end if;
     end;
@@ -1458,7 +1336,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).process_end;
---            return getProcessRecord(p_processId).process_end;
         else return null;
         end if;
     end;
@@ -1470,7 +1347,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).status;
---            return getProcessRecord(p_processId).status;
         else return 0;
         end if;
     end;
@@ -1482,7 +1358,6 @@ dbms_output.put_line('info: ' || p_stepInfo);
     begin
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).info;
---            return getProcessRecord(p_processId).info;
         else return null;
         end if;
     end;
