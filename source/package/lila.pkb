@@ -21,6 +21,7 @@ create or replace PACKAGE BODY LILA AS
         log_level                       PLS_INTEGER,
         
         -- global settings for all log sessions
+        flush_millis_threshold          PLS_INTEGER,
         flush_log_threshold             PLS_INTEGER,
         flush_process_threshold         PLS_INTEGER,
         flush_monitor_threshold         PLS_INTEGER,
@@ -180,6 +181,7 @@ create or replace PACKAGE BODY LILA AS
         l_configRec.steps_done := l_processRec.steps_done;
         l_configRec.log_level := l_sessionRec.log_level;
         l_configRec.flush_log_threshold := g_flush_log_threshold;
+        l_configRec.flush_millis_threshold := g_flush_millis_threshold;
         l_configRec.flush_process_threshold := g_flush_process_threshold;
         l_configRec.flush_monitor_threshold := g_flush_monitor_threshold;
         l_configRec.monitor_alert_threshold_factor := g_monitor_alert_threshold_factor;
@@ -309,7 +311,8 @@ create or replace PACKAGE BODY LILA AS
                 steps_todo                     NUMBER,
                 steps_done                     NUMBER,
                 is_active                      NUMBER,
-                log_level                      NUMBER,                
+                log_level                      NUMBER,
+                flush_millis_threshold         NUMBER,
                 flush_log_threshold            NUMBER,
                 flush_process_threshold        NUMBER,
                 flush_monitor_threshold        NUMBER,
@@ -460,6 +463,7 @@ create or replace PACKAGE BODY LILA AS
             steps_todo,
             steps_done,
             log_level,
+            flush_millis_threshold,
             flush_log_threshold,
             flush_process_threshold,
             flush_monitor_threshold,
@@ -545,26 +549,15 @@ create or replace PACKAGE BODY LILA AS
     as
         pragma autonomous_transaction;
     begin
-        
-        /*
-            die sollten per defintion im neuen record gesetzt sein
-            
-        -- global settings for all log sessions
-        flush_log_threshold             PLS_INTEGER := g_flush_log_threshold, -- max. dirty log records
-        flush_process_threshold          PLS_INTEGER := g_flush_process_threshold, -- max. dirty CHANGES of session record
-        flush_monitor_threshold         PLS_INTEGER := g_flush_monitor_threshold, -- max. dirty monitor records
-        monitor_alert_threshold_factor  PLS_INTEGER := g_monitor_alert_threshold_factor, -- max. deviation from the average processing time
-        max_entries_per_monitor_action  PLS_INTEGER := g_max_entries_per_monitor_action -- round robin: max. monitor actions hold in memory
-        */
     
         execute immediate 
             'insert into ' || CONFIG_TABLE || ' 
-            (PROCESS_ID, PROCESS_NAME, PROCESS_START, IS_ACTIVE, STEPS_TODO, LOG_LEVEL, FLUSH_LOG_THRESHOLD, FLUSH_PROCESS_THRESHOLD, 
+            (PROCESS_ID, PROCESS_NAME, PROCESS_START, IS_ACTIVE, STEPS_TODO, LOG_LEVEL, FLUSH_MILLIS_THRESHOLD, FLUSH_LOG_THRESHOLD, FLUSH_PROCESS_THRESHOLD, 
              FLUSH_MONITOR_THRESHOLD, MONITOR_ALERT_THRESHOLD_FACTOR, MAX_ENTRIES_PER_MONITOR_ACTION)
-            values (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11)'
+            values (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, 12)'
         USING p_configRec.process_id, p_configRec.process_name, p_configRec.process_start, p_configRec.is_active, p_configRec.steps_todo, p_configRec.log_level, 
-              p_configRec.flush_log_threshold, p_configRec.flush_process_threshold, p_configRec.flush_monitor_threshold,
-              p_configRec.monitor_alert_threshold_factor, p_configRec.max_entries_per_monitor_action;
+              p_configRec.flush_millis_threshold, p_configRec.flush_log_threshold, p_configRec.flush_process_threshold,
+              p_configRec.flush_monitor_threshold, p_configRec.monitor_alert_threshold_factor, p_configRec.max_entries_per_monitor_action;
               
         commit;
         
@@ -619,10 +612,11 @@ create or replace PACKAGE BODY LILA AS
         
         execute immediate 
             'update ' || CONFIG_TABLE || ' 
-            (IS_ACTIVE, STEPS_TODO, STEPS_DONE, LOG_LEVEL, FLUSH_LOG_THRESHOLD, FLUSH_PROCESS_THRESHOLD, FLUSH_MONITOR_THRESHOLD, MONITOR_ALERT_THRESHOLD_FACTOR, MAX_ENTRIES_PER_MONITOR_ACTION)
-            values (:2, :3, :4, :5, :6, :7, :8, :9, :10)
+            (IS_ACTIVE, STEPS_TODO, STEPS_DONE, LOG_LEVEL, FLUSH_MILLIS_THRESHOLD, FLUSH_LOG_THRESHOLD, FLUSH_PROCESS_THRESHOLD, FLUSH_MONITOR_THRESHOLD, MONITOR_ALERT_THRESHOLD_FACTOR, MAX_ENTRIES_PER_MONITOR_ACTION)
+            values (:2, :3, :4, :5, :6, :7, :8, :9, :10, :11)
             where process_id = :1'
-        USING p_configRec.process_id, p_configRec.is_active, p_configRec.steps_todo, p_configRec.steps_done, p_configRec.log_level, p_configRec.flush_log_threshold, p_configRec.flush_process_threshold,
+        USING p_configRec.process_id, p_configRec.is_active, p_configRec.steps_todo, p_configRec.steps_done, p_configRec.log_level, 
+              p_configRec.flush_millis_threshold, p_configRec.flush_log_threshold, p_configRec.flush_process_threshold,
               p_configRec.flush_monitor_threshold, p_configRec.monitor_alert_threshold_factor, p_configRec.max_entries_per_monitor_action;
         
         commit;
@@ -792,14 +786,6 @@ create or replace PACKAGE BODY LILA AS
         g_log_groups(v_key).EXTEND;
         g_log_groups(v_key)(g_log_groups(v_key).LAST) := v_new_log;
     
-        -- 4. Globalen Dirty-Zähler erhöhen
---        g_log_dirty_count := g_log_dirty_count + 1;
-    
-        -- 5. Flush-Check
---        if g_log_dirty_count >= g_flush_log_threshold then
---            flushLogs(p_processId);
---            g_log_dirty_count := 0;
---        end if;
     end;
 
 
@@ -1560,6 +1546,7 @@ create or replace PACKAGE BODY LILA AS
         end if;
         
         -- set global parameters
+        g_flush_millis_threshold := p_configRec.flush_millis_threshold;
         g_flush_log_threshold := p_configRec.flush_log_threshold;
         g_flush_process_threshold := p_configRec.flush_process_threshold;
         g_flush_monitor_threshold := p_configRec.flush_monitor_threshold;
@@ -2042,18 +2029,67 @@ dbms_output.put_line('okay');
     --------------------------------------------------------------------------
     -- Avoid throttling 
 	--------------------------------------------------------------------------
-    function waitForSignal(p_timeout_sec number) return PLS_INTEGER
+    function waitForResponse(
+        p_signalName   IN varchar2, 
+        p_signalMsg    IN varchar2,
+        p_registerName IN varchar2, 
+        p_timeoutSec   IN number
+    ) return varchar2
+    as
+        PRAGMA AUTONOMOUS_TRANSACTION;
+        l_msg       VARCHAR2(1800);
+        l_status    PLS_INTEGER;
+    begin
+        -- Prüfung auf Throttling (10-Sekunden-Sperre)
+        IF (SYSTIMESTAMP - g_last_signal_time) > INTERVAL '10' SECOND THEN
+            DBMS_ALERT.REGISTER(p_registerName);
+            DBMS_ALERT.SIGNAL(p_signalName, p_signalMsg);
+            COMMIT; -- Signal für andere Sessions sichtbar machen
+            
+            DBMS_ALERT.WAITONE(p_registerName, l_msg, l_status, p_timeoutSec);
+            DBMS_ALERT.REMOVE(p_registerName);
+            
+            g_last_signal_time := SYSTIMESTAMP;
+            
+            -- Falls Timeout (status 1), geben wir einen Hinweis zurück
+            IF l_status = 1 THEN
+                l_msg := 'TIMEOUT';
+            END IF;
+        ELSE
+            -- Kennung für: "Signal wurde wegen Throttling übersprungen"
+            l_msg := 'THROTTLED';
+        END IF;
+    
+        COMMIT; -- Autonome Transaktion abschließen
+        return l_msg;
+        
+    exception
+        when others then
+            rollback;
+            -- Im Fehlerfall sicherheitshalber das Register entfernen, 
+            -- falls es oben bereits registriert wurde
+            BEGIN DBMS_ALERT.REMOVE(p_registerName); EXCEPTION WHEN OTHERS THEN NULL; END;
+            return 'ERROR: ' || SQLERRM;
+    end;
+
+	--------------------------------------------------------------------------
+
+    function waitForSignal(
+        p_signalName varchar2, 
+        p_signalMsg varchar2,
+        p_registerName varchar2, p_timeoutSec number
+    ) return PLS_INTEGER
     as
         PRAGMA AUTONOMOUS_TRANSACTION;
         l_msg       VARCHAR2(1800);
         l_status    PLS_INTEGER := -1;
     begin
         IF (SYSTIMESTAMP - g_last_signal_time) > INTERVAL '10' SECOND THEN
-            DBMS_ALERT.REGISTER('LILA_DATA_PERSISTED');
-            DBMS_ALERT.SIGNAL('LILA_REQUEST_PERSIST', 'REQUEST_FROM_' || USER);
+            DBMS_ALERT.REGISTER(p_registerName);
+            DBMS_ALERT.SIGNAL(p_signalName, p_signalMsg);
             COMMIT;
-            DBMS_ALERT.WAITONE('LILA_DATA_PERSISTED', l_msg, l_status, p_timeout_sec);
-            DBMS_ALERT.REMOVE('LILA_DATA_PERSISTED');
+            DBMS_ALERT.WAITONE(p_registerName, l_msg, l_status, p_timeoutSec);
+            DBMS_ALERT.REMOVE(p_registerName);
             g_last_signal_time := SYSTIMESTAMP;
         END IF;
         commit;
@@ -2068,62 +2104,71 @@ dbms_output.put_line('okay');
     --------------------------------------------------------------------------
     
     FUNCTION GET_LATEST_CONFIG(p_timeout_sec IN NUMBER DEFAULT 5) RETURN CLOB IS
-    l_report    CLOB;
-    l_line      VARCHAR2(120) := RPAD('-', 100, '-') || CHR(10);
-    l_sql       VARCHAR2(2000);
-    l_cursor    SYS_REFCURSOR;
-
-    -- Variablen für die Spalten
-    v_f_log     NUMBER;
-    v_f_proc    NUMBER;
-    v_f_mon     NUMBER;
-    v_m_factor  NUMBER;
-    v_m_max     NUMBER;
+        l_report    CLOB;
+        l_line      VARCHAR2(120) := RPAD('-', 100, '-') || CHR(10);
+        l_sql       VARCHAR2(2000);
+        l_cursor    SYS_REFCURSOR;
+        l_response  VARCHAR2(1800);
+        l_json_doc   VARCHAR2(2000);
+        -- Variablen für die Spalten
+        v_f_millis  NUMBER;
+        v_f_log     NUMBER;
+        v_f_proc    NUMBER;
+        v_f_mon     NUMBER;
+        v_m_factor  NUMBER;
+        v_m_max     NUMBER;
     BEGIN
         -- B. Header für den Report
         l_report := l_line || ' LATEST ACTIVE CONFIGURATION REPORT' || CHR(10) || l_line;
-    
-        case waitForSignal(p_timeout_sec)
-            when 0 THEN
-                l_report := l_report || '-- Status: Daten frisch von Instanz erhalten.' || CHR(10);
-            when 1 then
+        
+        l_response := waitForResponse('LILA_REQUEST_CONFIG', 'LILA_RESPONSE_CONFIG', 'REQUEST_FROM_' || USER, p_timeout_sec);
+        CASE
+            WHEN l_response = 'TIMEOUT' THEN
                 l_report := l_report || '-- Warnung: Instanz antwortet nicht (Timeout). Zeige alten Tabellenstand.' || CHR(10);
-            when -1 then
-                l_report := l_report || '-- Info: Lese Tabelle direkt (10s Throttling aktiv).' || CHR(10);
-        end case;
+                
+            WHEN l_response = 'THROTTLED' THEN
+                l_report := l_report || '-- Info: Daten sind noch aktuell (10s Throttling aktiv).' || CHR(10);
+                
+            WHEN l_response LIKE 'ERROR%' THEN
+                l_report := l_report || '-- Fehler: ' || l_response || CHR(10);
+            else
+            -- Erfolgsfall: JSON parsen
+            l_json_doc := '{' || l_response || '}';
+            BEGIN
+                SELECT j.*
+                INTO v_f_log, v_f_millis, v_f_proc, v_f_mon, v_m_factor, v_m_max
+                FROM JSON_TABLE(l_json_doc, '$'
+                    COLUMNS (
+                        f_log    NUMBER PATH '$.FLUSH_LOG_THRESHOLD',
+                        f_millis NUMBER PATH '$.FLUSH_MILLIS_THRESHOLD',
+                        f_proc   NUMBER PATH '$.FLUSH_PROCESS_THRESHOLD',
+                        f_mon    NUMBER PATH '$.FLUSH_MONITOR_THRESHOLD',
+                        m_factor NUMBER PATH '$.MONITOR_ALERT_THRESHOLD_FACTOR',
+                        m_max    NUMBER PATH '$.MAX_ENTRIES_PER_MONITOR_ACTION'
+                    )
+                ) j;
 
-        -- C. Daten abfragen (Jüngster Datensatz mit IS_ACTIVE = 1)
-        l_sql := 'SELECT flush_log_threshold, flush_process_threshold, flush_monitor_threshold, ' ||
-                 '       monitor_alert_threshold_factor, max_entries_per_monitor_action ' ||
-                 'FROM ' || CONFIG_TABLE || ' ' ||
-                 'WHERE is_active = 1 ' ||
-                 'ORDER BY process_start DESC ' ||
-                 'FETCH FIRST 1 ROW ONLY';
-    
-        BEGIN
-            OPEN l_cursor FOR l_sql;
-            FETCH l_cursor INTO v_f_log, v_f_proc, v_f_mon, v_m_factor, v_m_max;
-            
-             IF l_cursor%FOUND THEN
-                -- Hier wurden alle alten Variablen (ID, Name, Start, IS_ACTIVE, LogLevel) entfernt
                 l_report := l_report || 
                     RPAD('FLUSH_LOG_THRESHOLD', 35) || ': ' || v_f_log || CHR(10) ||
+                    RPAD('FLUSH_MILLIS_THRESHOLD', 35) || ': ' || v_f_millis || CHR(10) ||
                     RPAD('FLUSH_PROCESS_THRESHOLD', 35) || ': ' || v_f_proc || CHR(10) ||
                     RPAD('FLUSH_MONITOR_THRESHOLD', 35) || ': ' || v_f_mon || CHR(10) ||
-                    RPAD('MONITOR_ALERT_THRESHOLD_FACTOR', 35) || ': ' || v_m_factor || CHR(10) ||
-                    RPAD('MAX_ENTRIES_PER_MONITOR_ACTION', 35) || ': ' || v_m_max || CHR(10);
-            ELSE
-                l_report := l_report || 'No active session (IS_ACTIVE = 1) found.' || CHR(10);
-            END IF;
-            CLOSE l_cursor;
-        EXCEPTION
-            WHEN OTHERS THEN
-                l_report := l_report || 'ERROR: Could not read configuration from ' || CONFIG_TABLE || CHR(10) || SQLERRM || CHR(10);
-                IF l_cursor%ISOPEN THEN CLOSE l_cursor; END IF;
-        END;
-    
+                    RPAD('MONITOR_FACTOR', 35) || ': ' || v_m_factor || CHR(10) ||
+                    RPAD('MONITOR_MAX', 35) || ': ' || v_m_max || CHR(10);
+                    
+            EXCEPTION
+                WHEN OTHERS THEN
+                    l_report := l_report || '-- Fehler: bei Verarbeitung der Antwort: ' || SQLERRM || CHR(10);
+            END;
+        end case;
+
         l_report := l_report || l_line;
         RETURN l_report;
+        
+    EXCEPTION
+        WHEN OTHERS THEN
+            l_report := l_report || 'ERROR: Could not read configuration from ' || CONFIG_TABLE || CHR(10) || SQLERRM || CHR(10);
+
     END;
 
     -------------------------------------------------------------------------
@@ -2146,7 +2191,7 @@ dbms_output.put_line('okay');
     BEGIN
         l_report := l_line || ' LATEST ACTIVE CONFIGURATION REPORT' || CHR(10) || l_line;
         
-        case waitForSignal(p_timeout_sec)
+        case waitForSignal('LILA_REQUEST_PERSIST', 'LILA_DATA_PERSISTED', 'REQUEST_FROM_' || USER, p_timeout_sec)
             when 0 THEN
                 l_report := l_report || '-- Status: Daten frisch von Instanz erhalten.' || CHR(10);
             when 1 then
