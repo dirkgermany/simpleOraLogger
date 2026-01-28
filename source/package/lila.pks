@@ -90,6 +90,7 @@ create or replace PACKAGE LILA AS
 
     PROCEDURE START_SERVER;
     procedure SERVER_SEND_ANY_MSG(p_message varchar2);
+    procedure SERVER_SEND_EXIT(p_message varchar2);
 
 
     ----------
