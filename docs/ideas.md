@@ -21,6 +21,14 @@ Die Buffered-Mechanismen arbeiten auf Basis von Mengen-Thresholds und Zeit-Thres
 
 Damit sich LILA als ein einziges Tool für die unterschiedlichsten Szenarien präsentiert, ist der gesamte Code in einem Paket (.pks + .pkb).
 
+## Hinweis auf Multi-Channel-Logging
+LILA kann im Parallelbetrieb (standalone und remote zugleich) arbeiten.
+
+### Standard-Logs (Low Priority)
+standalone und gepuffert in die lokale DB schreiben
+### Kritische Monitoring-Events (High Priority)
+zeitgleich remote an den LILA-Server senden, damit dort sofort Alarme ausgelöst werden können, ohne auf den nächsten lokalen Buffer-Flush zu warten.
+
 
 ## Flushs auslagern in den Server-Loop
 
