@@ -121,7 +121,9 @@ create or replace PACKAGE BODY LILA AS
     
     -- Throttling for SIGNALs
     g_last_signal_time TIMESTAMP := SYSTIMESTAMP - INTERVAL '1' DAY;
-
+    
+    TYPE code_map_t IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(30);
+    g_response_codes code_map_t;
     ---------------------------------------------------------------
     -- Placeholders for tables
     ---------------------------------------------------------------
@@ -138,6 +140,28 @@ create or replace PACKAGE BODY LILA AS
     procedure sync_monitor(p_processId number, p_force boolean default false);
     procedure sync_process(p_processId number, p_force boolean default false);
     
+    ---------------------------------------------------------------
+    -- Antwort Codes stabil vereinheitlichen
+    ---------------------------------------------------------------
+    PROCEDURE initialize_map IS
+    BEGIN
+        IF g_response_codes.COUNT = 0 THEN
+            g_response_codes(TXT_ACK_SHUTDOWN) := NUM_ACK_SHUTDOWN;
+            g_response_codes(TXT_ACK_OK)       := NUM_ACK_OK;
+        END IF;
+    END initialize_map;
+    
+    FUNCTION get_serverCode(p_txt VARCHAR2) RETURN PLS_INTEGER IS
+    BEGIN
+        initialize_map; -- Stellt sicher, dass die Map befüllt ist
+        
+        IF g_response_codes.EXISTS(p_txt) THEN
+            RETURN g_response_codes(p_txt);
+        ELSE
+            RETURN -1; -- Oder eine Exception werfen
+        END IF;
+    END;
+    
     -- Interne Prüfung
     FUNCTION is_remote(p_processId IN NUMBER) RETURN BOOLEAN IS
     BEGIN
@@ -152,7 +176,7 @@ create or replace PACKAGE BODY LILA AS
     as
     begin
  
-    return 'LILA->' || TO_CHAR(
+    return 'LILA->' || SYS_CONTEXT('USERENV', 'SID') || '-' || TO_CHAR(
         (EXTRACT(DAY FROM (sys_extract_utc(SYSTIMESTAMP) - TO_TIMESTAMP('1970-01-01', 'YYYY-MM-DD'))) * 86400000) + 
         TO_NUMBER(TO_CHAR(sys_extract_utc(SYSTIMESTAMP), 'SSSSSFF3')),
         'FM999999999999999'
@@ -165,93 +189,52 @@ create or replace PACKAGE BODY LILA AS
     function waitForResponse(
         p_request       in varchar2, -- Wird für die Zuordnung/Verzweigung im Server benötigt
         p_payload       IN varchar2, 
-        p_timeoutSec    IN number
+        p_timeoutSec    IN PLS_INTEGER
     ) return varchar2
     as
-        
         l_msg       VARCHAR2(1800);
         l_status    PLS_INTEGER;
+        l_statusReceive PLS_INTEGER;
         l_clientChannel  varchar2(50);
         l_header    varchar2(100);
         l_meta      varchar2(100);
         l_data      varchar2(1500);
     begin
-dbms_output.enable();
+dbms_output.enable();        
         l_clientChannel := getRequestKey;
         
         l_header := '"header":{"request":"' || p_request || '", "response":"' || l_clientChannel ||'"}';
         l_meta  := '"meta":{"param":"value"}';
         l_data  := '"payload":' || p_payLoad;
-        
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
-dbms_output.put_line('vor create_pipe');        
-        -- 1. Eigene Antwort-Pipe erstellen & leeren
-        l_status := DBMS_PIPE.CREATE_PIPE(l_clientChannel);
-        DBMS_PIPE.PURGE(l_clientChannel);
-dbms_output.put_line('nach create_pipe');        
         
         DBMS_PIPE.PACK_MESSAGE(l_msg);
-dbms_output.put_line('vor send_message');        
-
-        l_status := DBMS_PIPE.SEND_MESSAGE(g_pipeName, timeout => 5);
+        l_status := DBMS_PIPE.SEND_MESSAGE(g_pipeName, timeout => 3);
         l_status := DBMS_PIPE.RECEIVE_MESSAGE(l_clientChannel, timeout => p_timeoutSec);
-dbms_output.put_line(l_status);
-dbms_output.put_line(l_clientChannel);
-        
-        IF l_status = 0 THEN
+        IF l_statusReceive = 0 THEN
             DBMS_PIPE.UNPACK_MESSAGE(l_msg);
+            dbms_output.put_line(l_msg);
         END IF;
-        -- IMMER aufräumen, sonst "leakt" SGA-Speicher
-        l_status := DBMS_PIPE.REMOVE_PIPE(l_clientChannel); 
         
-        IF l_status = 1 THEN RETURN 'TIMEOUT'; END IF;
+        IF l_statusReceive = 1 THEN RETURN 'TIMEOUT'; END IF;
         return l_msg;
     end;
 	--------------------------------------------------------------------------
 
-    function waitForSignal(
-        p_registerName varchar2,
-        p_signalName varchar2, 
-        p_signalMsg varchar2,
-        p_timeoutSec number
-    ) return PLS_INTEGER
-    as
-        PRAGMA AUTONOMOUS_TRANSACTION;
-        l_msg       VARCHAR2(1800);
-        l_status    PLS_INTEGER := -1;
-    begin
-        IF (SYSTIMESTAMP - g_last_signal_time) > INTERVAL '10' SECOND THEN
-            DBMS_ALERT.REGISTER(p_registerName);
-            DBMS_ALERT.SIGNAL(p_signalName, p_signalMsg);
-            COMMIT;
-            DBMS_ALERT.WAITONE(p_registerName, l_msg, l_status, p_timeoutSec);
-            DBMS_ALERT.REMOVE(p_registerName);
-            g_last_signal_time := SYSTIMESTAMP;
-        END IF;
-        commit;
-        return l_status;
-        
-    exception
-        when others then
-            rollback;
-            return 1;
-    end;
     
     procedure sendNoWait(
         p_request       in varchar2, -- Wird für die Zuordnung/Verzweigung im Server benötigt
         p_payload       IN varchar2, 
         p_timeoutSec    IN number
     )
-    as
-        PRAGMA AUTONOMOUS_TRANSACTION;
-        
+    as        
         l_msg       VARCHAR2(1800);
         l_header    varchar2(140);
         l_meta      varchar2(140);
         l_data      varchar2(1500);
         l_status    PLS_INTEGER;
     begin        
-        l_header := '"header":{"request":"' || p_request || '"}';
+        l_header := '"header":{"msg_type":"API_CALL", "request":"' || p_request || '"}';
         l_meta  := '"meta":{"param":"value"}';
         l_data  := '"payload":' || p_payLoad;
         
@@ -284,16 +267,6 @@ dbms_output.put_line(l_clientChannel);
         Internal methods are written in lowercase and camelCase
     */
     
-    -- register to Alerts
-    procedure registerForAlert
-    as
-    begin
-        if not g_isAlertRegistered then
-            DBMS_ALERT.REGISTER(g_alertCode_Flush);
-            DBMS_ALERT.REGISTER(g_alertCode_Read);
-        end if;
-    end;
-
 	--------------------------------------------------------------------------    
     -- global exception handling
     function should_raise_error(p_processId number) return boolean
@@ -1894,7 +1867,6 @@ dbms_output.put_line('DEBUG: log_any remote path for ID ' || p_processId);
         v_new_rec.info            := 'START';
         
         g_process_cache(pProcessId) := v_new_rec;
-        registerForAlert;
         return pProcessId;
 
     end;
@@ -2010,7 +1982,6 @@ dbms_output.put_line('DEBUG: log_any remote path for ID ' || p_processId);
         l_session_init t_session_init;
         l_status PLS_INTEGER;
     begin
-        -- {header{}, meta{}, payload{"process_name":"mein_prozess", "log_level": 1}}
         l_payload := JSON_QUERY(p_message, '$.payload');
         l_processId := extractFromJsonStr(l_payload, 'process_id');
         l_session_init.logLevel    := extractFromJsonNum(l_payload, 'log_level');
@@ -2025,15 +1996,16 @@ dbms_output.put_line('DEBUG: log_any remote path for ID ' || p_processId);
     end;    
     
 	-------------------------------------------------------------------------- 
-        procedure SERVER_SEND_EXIT(p_message varchar2)
+    procedure SERVER_SEND_EXIT(p_message varchar2)
     as
         l_response varchar2(1000);
     begin
         l_response := waitForResponse(
             p_request       => 'EXIT',
             p_payload       => p_message,
-            p_timeoutSec    => 2
-        );                
+            p_timeoutSec    => 5
+        );
+        dbms_output.put_line('Antwort vom Server: ' || l_response);
     end;
 
     
@@ -2082,45 +2054,82 @@ dbms_output.put_line('DEBUG: log_any remote path for ID ' || p_processId);
         return -200;
     end;
     
+	--------------------------------------------------------------------------
     
-PROCEDURE DUMP_BUFFER_STATS AS
-    v_key VARCHAR2(100);
-    v_log_total NUMBER := 0;
-    v_mon_total NUMBER := 0;
-BEGIN
-dbms_output.enable();
+    PROCEDURE DUMP_BUFFER_STATS AS
+        v_key VARCHAR2(100);
+        v_log_total NUMBER := 0;
+        v_mon_total NUMBER := 0;
+    BEGIN
+    dbms_output.enable();
+    
+        -- 1. Logs zählen
+        v_key := g_log_groups.FIRST;
+        WHILE v_key IS NOT NULL LOOP
+            v_log_total := v_log_total + g_log_groups(v_key).COUNT;
+            v_key := g_log_groups.NEXT(v_key);
+        END LOOP;
+    
+        -- 2. Monitore zählen
+        v_key := g_monitor_groups.FIRST;
+        WHILE v_key IS NOT NULL LOOP
+            v_mon_total := v_mon_total + g_monitor_groups(v_key).COUNT;
+            v_key := g_monitor_groups.NEXT(v_key);
+        END LOOP;
+    
+        DBMS_OUTPUT.PUT_LINE('--- LILA BUFFER DIAGNOSE ---');
+        DBMS_OUTPUT.PUT_LINE('Sessions in Queue: ' || g_dirty_queue.COUNT);
+        DBMS_OUTPUT.PUT_LINE('Gepufferte Logs:   ' || v_log_total);
+        DBMS_OUTPUT.PUT_LINE('Gepufferte Monit.: ' || v_mon_total);
+        DBMS_OUTPUT.PUT_LINE('Master-Cache:      ' || g_process_cache.COUNT);
+    END;
+    
+    --------------------------------------------------------------------------
+    function packServerResp(p_serverMsgTxt varchar2) return varchar2
+    as
+        l_serverCodeNum PLS_INTEGER;
+        l_header varchar2(100);
+        l_meta   varchar2(100);
+        l_data   varchar2(100);
+        l_msg    varchar2(500);
+    begin
+    
+        l_serverCodeNum := get_serverCode(p_serverMsgTxt);
+        l_header := '"header":{"msg_type":"SERVER_RESPONSE", "server_version":"' || LILA_VERSION || '"}';
+        l_meta   := '"meta":{"param":"value"}';
+        l_data   := '"payload":{"server_message":"' || TXT_ACK_SHUTDOWN || '", ' || l_serverCodeNum;
+        
+        l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
 
-    -- 1. Logs zählen
-    v_key := g_log_groups.FIRST;
-    WHILE v_key IS NOT NULL LOOP
-        v_log_total := v_log_total + g_log_groups(v_key).COUNT;
-        v_key := g_log_groups.NEXT(v_key);
-    END LOOP;
-
-    -- 2. Monitore zählen
-    v_key := g_monitor_groups.FIRST;
-    WHILE v_key IS NOT NULL LOOP
-        v_mon_total := v_mon_total + g_monitor_groups(v_key).COUNT;
-        v_key := g_monitor_groups.NEXT(v_key);
-    END LOOP;
-
-    DBMS_OUTPUT.PUT_LINE('--- LILA BUFFER DIAGNOSE ---');
-    DBMS_OUTPUT.PUT_LINE('Sessions in Queue: ' || g_dirty_queue.COUNT);
-    DBMS_OUTPUT.PUT_LINE('Gepufferte Logs:   ' || v_log_total);
-    DBMS_OUTPUT.PUT_LINE('Gepufferte Monit.: ' || v_mon_total);
-    DBMS_OUTPUT.PUT_LINE('Master-Cache:      ' || g_process_cache.COUNT);
-END;
+        return l_msg;
+    end;
     
 	--------------------------------------------------------------------------
     
+    PROCEDURE handleServerExit(p_clientChannel varchar2, p_serverMsgNum varchar2)
+    as
+        l_status    PLS_INTEGER;
+    begin
+        DBMS_PIPE.PACK_MESSAGE(packServerResp(p_serverMsgNum));
+        l_status := DBMS_PIPE.SEND_MESSAGE(p_clientChannel, timeout => 2);
+        dbms_output.put_line('Exit Signal gesetzt, antworte an ' || p_clientChannel);
+        
+        IF l_status = 0 THEN
+            dbms_output.put_line('Antwort an Client gesendet.');
+        ELSE
+            dbms_output.put_line('Fehler beim Senden der Antwort: ' || l_status);
+        END IF;                    
+    end;
+    
+	--------------------------------------------------------------------------
+
     PROCEDURE START_SERVER
     as
 v_key VARCHAR2(100); 
---counter_incoming number := 0;
         l_clientChannel  varchar2(30);
         l_message       VARCHAR2(32767);
-        l_status    INTEGER;
-        l_timeout   NUMBER := 10; -- Timeout nach 10 Minuten Warten
+        l_status    PLS_INTEGER;
+        l_timeout   NUMBER := 10; -- Timeout nach Sekunden Warten auf Nachricht
         l_request   VARCHAR2(100);
         l_json_doc  VARCHAR2(2000);
         
@@ -2129,17 +2138,18 @@ v_key VARCHAR2(100);
         l_exitSignal BOOLEAN := FALSE;
         l_stop_server_exception EXCEPTION;
     begin
+dbms_output.enable();
         l_localSession := NEW_SESSION('LILA_SERVER', logLevelDebug);
---        DBMS_ALERT.REGISTER('LILA_REQUEST');
     
         -- Pipe erstellen (Public oder Private, Kapazität hier 1MB für High-Load)
-        l_dummyRes := DBMS_PIPE.CREATE_PIPE(g_pipeName, maxpipesize => 1048576);
+        l_dummyRes := DBMS_PIPE.REMOVE_PIPE(g_pipeName);
+        l_dummyRes := DBMS_PIPE.CREATE_PIPE(pipename => g_pipeName, maxpipesize => 1048576, private => false);
         DBMS_PIPE.PURGE(g_pipeName); 
         
         LOOP -- DIES IST DIE ENDLOSSCHLEIFE
             -- Warten auf die nächste Nachricht (Timeout in Sekunden)
-            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => 10);
-            IF l_status = 0 THEN  
+            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => l_timeout);
+            IF l_status = 0 THEN
             BEGIN 
                 DBMS_PIPE.UNPACK_MESSAGE(l_message);
                 l_clientChannel := extractClientChannel(l_message);
@@ -2147,14 +2157,11 @@ v_key VARCHAR2(100);
                                 
                 CASE l_request
                     WHEN 'EXIT' then
+                        handleServerExit(l_clientChannel, TXT_ACK_SHUTDOWN); 
                         l_exitSignal := TRUE;
-                exit;
---                        DBMS_ALERT.SIGNAL(l_clientChannel, 'Bla');
-                        
+
                     WHEN 'ANY_MSG' then
-                        DBMS_ALERT.SIGNAL(l_clientChannel, extractFromJsonStr(l_message, 'payload.msg'));
---                        COMMIT;
-                        
+                        null;
                         
                     WHEN 'NEW_SESSION' THEN
                         doRemote_newSession(l_clientChannel, l_message);
@@ -2166,7 +2173,6 @@ v_key VARCHAR2(100);
                         -- Unbekanntes Tag loggen
                         warn(l_localSession, 'Unknown request: ' || l_request);
                 END CASE;
---                COMMIT; -- Wichtig: Signal und Daten werden sichtbar
 
                 EXCEPTION
                     WHEN l_stop_server_exception THEN
@@ -2177,43 +2183,43 @@ v_key VARCHAR2(100);
                     WHEN OTHERS THEN
                         -- WICHTIG: Fehler loggen, aber die Schleife NICHT verlassen!
                         ERROR(l_localSession, 'Kritischer Fehler bei Verarbeitung eines Kommandos: ' || SQLERRM);
---                        ROLLBACK;
                 END;
             
             ELSIF l_status = 1 THEN
-                -- Timeout erreicht. Passiert, wenn 10 Minuten kein Signal kam.
+                -- Timeout erreicht. Passiert, wenn 10 Sekunden kein Signal kam.
                 -- Housekeeping
+                dbms_output.put_line('Housekeeping');
                 SYNC_ALL_DIRTY;
             end if;
             
-            EXIT when l_status != 0 and l_exitSignal;
-            
+            EXIT when l_exitSignal;
         END LOOP;
-            
+        
+        -- es könnten noch dirty buffered Einträge existieren
         sync_all_dirty(true);
 
-    v_key := TO_CHAR(l_localSession);        
-    IF g_log_groups.EXISTS(v_key) THEN
-        DBMS_OUTPUT.PUT_LINE('Logs im Buffer für '||v_key||': '|| lila.g_log_groups(v_key).COUNT);
-    ELSE
-        DBMS_OUTPUT.PUT_LINE('Keine Logs im Buffer für '||v_key);
-    END IF;
+        v_key := TO_CHAR(l_localSession);        
+        IF g_log_groups.EXISTS(v_key) THEN
+            DBMS_OUTPUT.PUT_LINE('Logs im Buffer für '||v_key||': '|| lila.g_log_groups(v_key).COUNT);
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Keine Logs im Buffer für Server mit Prozess-ID: '||v_key);
+        END IF;
         
-DUMP_BUFFER_STATS;
+        -- abschließende Analyse der Buffer-Zustände
+        DUMP_BUFFER_STATS;
 
         -- Dieser Teil wird nie erreicht, solange die DB-Session aktiv ist
-        DBMS_ALERT.REMOVEALL;
         close_session(l_localSession);
         
     EXCEPTION
     WHEN l_stop_server_exception THEN
         -- Hier landen wir nur, wenn der Server gezielt beendet werden soll
+        dbms_output.put_line('Err: ' || sqlerrm);
         ERROR(l_localSession, 'Kritischer Fehler bei Verarbeitung eines Kommandos: ' || SQLERRM);
         CLOSE_SESSION(l_localSession);
-        DBMS_ALERT.REMOVE('LILA_REQUEST');
     
     WHEN OTHERS THEN
-        null;
+        dbms_output.put_line('Err: ' || sqlerrm);
     end;
 
     ------------------------------------------------------------------------
