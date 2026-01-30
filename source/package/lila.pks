@@ -1,5 +1,6 @@
 create or replace PACKAGE LILA AS
     /* Complete Doc and last version see https://github.com/dirkgermany/LILA-Logging/docs */
+LILA_VERSION constant varchar2(20) := 'v1.3.0';
 
     -- =========
     -- Log Level
@@ -10,6 +11,14 @@ create or replace PACKAGE LILA AS
     logLevelMonitor     CONSTANT PLS_INTEGER := 3;
     logLevelInfo        CONSTANT PLS_INTEGER := 4;
     logLevelDebug       CONSTANT PLS_INTEGER := 8;
+    
+    -- ==================
+    -- Codes and Messages
+    -- ==================
+    TXT_ACK_OK       CONSTANT VARCHAR2(30) := 'SERVER_ACK_OK';
+    NUM_ACK_OK       CONSTANT PLS_INTEGER  := 1000;
+    TXT_ACK_SHUTDOWN CONSTANT VARCHAR2(30) := 'SERVER_ACK_SHUTDOWN';
+    NUM_ACK_SHUTDOWN CONSTANT PLS_INTEGER  := 1001;
     
     -- ================================
     -- Record representing process data
