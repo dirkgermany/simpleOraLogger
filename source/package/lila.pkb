@@ -109,8 +109,7 @@ create or replace PACKAGE BODY LILA AS
     g_alertCode_Flush CONSTANT varchar2(25) := 'LILA_ALERT_FLUSH_CFG';
     g_alertCode_Read  CONSTANT varchar2(25) := 'LILA_ALERT_READ_CFG';
     
-    CONFIG_TABLE constant varchar2(20) := 'LILA_CONFIG';
-
+    g_pipeName      CONSTANT VARCHAR2(30) := 'LILA_REQUEST_PIPE';
 
     -- general Flush Time-Duration
     g_flush_millis_threshold PLS_INTEGER            := 1500; 
@@ -135,6 +134,9 @@ create or replace PACKAGE BODY LILA AS
     ---------------------------------------------------------------
     function getSessionRecord(p_processId number) return t_session_rec;
     function getProcessRecord(p_processId number) return t_process_rec;
+    procedure sync_log(p_processId number, p_force boolean default false);
+    procedure sync_monitor(p_processId number, p_force boolean default false);
+    procedure sync_process(p_processId number, p_force boolean default false);
     
     -- Interne Prüfung
     FUNCTION is_remote(p_processId IN NUMBER) RETURN BOOLEAN IS
@@ -166,7 +168,6 @@ create or replace PACKAGE BODY LILA AS
         p_timeoutSec    IN number
     ) return varchar2
     as
-        PRAGMA AUTONOMOUS_TRANSACTION;
         
         l_msg       VARCHAR2(1800);
         l_status    PLS_INTEGER;
@@ -175,6 +176,7 @@ create or replace PACKAGE BODY LILA AS
         l_meta      varchar2(100);
         l_data      varchar2(1500);
     begin
+dbms_output.enable();
         l_clientChannel := getRequestKey;
         
         l_header := '"header":{"request":"' || p_request || '", "response":"' || l_clientChannel ||'"}';
@@ -182,21 +184,25 @@ create or replace PACKAGE BODY LILA AS
         l_data  := '"payload":' || p_payLoad;
         
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
+dbms_output.put_line('vor create_pipe');        
+        -- 1. Eigene Antwort-Pipe erstellen & leeren
+        l_status := DBMS_PIPE.CREATE_PIPE(l_clientChannel);
+        DBMS_PIPE.PURGE(l_clientChannel);
+dbms_output.put_line('nach create_pipe');        
         
-dbms_output.put_line(l_msg);
-    
-        -- 1. Zuerst registrieren, damit wir die Antwort nicht verpassen!
-        DBMS_ALERT.REGISTER(l_clientChannel);
-    
-        -- 2. Jetzt dem Server das Signal schicken
-        DBMS_ALERT.SIGNAL('LILA_REQUEST', l_msg); -- Der Kanal, auf dem der Server hört (LILA_REQUEST)
-        COMMIT; -- Signal für Server sichtbar machen
-    
-        -- 3. Auf Antwort vom Server auf dem Client-Kanal warten
-        DBMS_ALERT.WAITONE(l_clientChannel, l_msg, l_status, p_timeoutSec);
+        DBMS_PIPE.PACK_MESSAGE(l_msg);
+dbms_output.put_line('vor send_message');        
+
+        l_status := DBMS_PIPE.SEND_MESSAGE(g_pipeName, timeout => 5);
+        l_status := DBMS_PIPE.RECEIVE_MESSAGE(l_clientChannel, timeout => p_timeoutSec);
+dbms_output.put_line(l_status);
+dbms_output.put_line(l_clientChannel);
         
-        DBMS_ALERT.REMOVE(l_clientChannel);
-        COMMIT; 
+        IF l_status = 0 THEN
+            DBMS_PIPE.UNPACK_MESSAGE(l_msg);
+        END IF;
+        -- IMMER aufräumen, sonst "leakt" SGA-Speicher
+        l_status := DBMS_PIPE.REMOVE_PIPE(l_clientChannel); 
         
         IF l_status = 1 THEN RETURN 'TIMEOUT'; END IF;
         return l_msg;
@@ -243,15 +249,20 @@ dbms_output.put_line(l_msg);
         l_header    varchar2(140);
         l_meta      varchar2(140);
         l_data      varchar2(1500);
+        l_status    PLS_INTEGER;
     begin        
         l_header := '"header":{"request":"' || p_request || '"}';
         l_meta  := '"meta":{"param":"value"}';
         l_data  := '"payload":' || p_payLoad;
         
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
-        
-        DBMS_ALERT.SIGNAL('LILA_REQUEST', l_msg); -- Der Kanal, auf dem der Server hört (LILA_REQUEST)
-        COMMIT; -- Signal für Server sichtbar machen
+        DBMS_PIPE.PACK_MESSAGE(p_payload);
+        l_status := DBMS_PIPE.SEND_MESSAGE(g_pipeName, timeout => 0);
+
+        IF l_status != 0 THEN
+            -- Optional: Fehlerbehandlung, falls Pipe voll
+            NULL; 
+        END IF;
     end;
     
     --------------------------------------------------------------------------
@@ -309,8 +320,7 @@ dbms_output.put_line(l_msg);
         
     exception
         when OTHERS then
-            DBMS_OUTPUT.PUT_LINE('DDL-Fehler bei: ' || p_sqlStmt);
-            DBMS_OUTPUT.PUT_LINE(SQLERRM);
+            null;
     end;
     
 	--------------------------------------------------------------------------
@@ -428,8 +438,6 @@ dbms_output.put_line(l_msg);
 
     exception      
         when others then
-dbms_output.enable();
-dbms_output.put_line(SQLERRM);
             -- creating log files mustn't fail
             RAISE;
      end;
@@ -574,9 +582,11 @@ dbms_output.put_line(SQLERRM);
     exception
         when others then
             rollback;
-            if should_raise_error(p_processId) then
+--            if should_raise_error(p_processId) then
+DBMS_OUTPUT.PUT_LINE('CRITICAL: Persistierung fehlgeschlagen: ' || SQLERRM);
+        RAISE; -- Das wird den Server stoppen, aber dir den Grund zeigen!
                 raise;
-            end if;
+--            end if;
 
     end;
     
@@ -662,9 +672,6 @@ dbms_output.put_line(SQLERRM);
     begin
         v_idx := v_indexSession(p_processId);
         g_sessionList(v_idx).serial_no := nvl(g_sessionList(v_idx).serial_no, 0) + 1;
-        
-dbms_output.put_line('Procedure write_to_log_buffer  serielle no: für ' || p_processId || ' = '  || g_sessionList(v_idx).serial_no);
-
         v_new_log.serial_no := g_sessionList(v_idx).serial_no;
     
         -- 1. Gruppe initialisieren
@@ -690,12 +697,6 @@ dbms_output.put_line('Procedure write_to_log_buffer  serielle no: für ' || p_pr
         g_sessionList(v_idx).log_dirty_count := nvl(g_sessionList(v_idx).log_dirty_count, 0) + 1;
         -- ID in die Dirty-Queue werfen
         g_dirty_queue(p_processId) := TRUE;
-        
-dbms_output.put_line('Logs im Buffer für Key ' || v_key || ': ' || g_log_groups(v_key).COUNT);
-dbms_output.put_line('DEBUG: Key=' || v_key || 
-                     ' | Buffer-Count=' || g_log_groups(v_key).COUNT || 
-                     ' | Dirty-Attr=' || nvl(to_char(g_sessionList(v_idx).log_dirty_count), 'NULL'));
-
 
     end;
 
@@ -741,6 +742,54 @@ dbms_output.put_line('DEBUG: Key=' || v_key ||
             end if;
 
     end;
+    --------------------------------------------------------------------
+    -- Alle Dirty Einträge für alle Sessions wegschreiben
+    --------------------------------------------------------------------
+    PROCEDURE SYNC_ALL_DIRTY(p_force BOOLEAN DEFAULT FALSE) 
+    IS
+        v_id      BINARY_INTEGER;
+        v_next_id BINARY_INTEGER;
+        v_idx     PLS_INTEGER;
+    BEGIN
+        -- Wir starten am Anfang der "Dreckigen Liste"
+        v_id := g_dirty_queue.FIRST;
+        
+        WHILE v_id IS NOT NULL LOOP
+            -- 1. Zeiger auf das nächste Element sichern, bevor wir evtl. DELETE machen
+            v_next_id := g_dirty_queue.NEXT(v_id);
+            
+            -- 2. Index der Session-Metadaten holen
+            -- (Wir nutzen v_indexSession, um sicherzustellen, dass die Session noch existiert)
+            IF v_indexSession.EXISTS(v_id) THEN
+                v_idx := v_indexSession(v_id);
+    
+                -- 3. Synchronisation aller drei Bereiche für diesen Prozess
+                -- Falls p_force=TRUE (z.B. Shutdown), wird sofort geschrieben.
+                -- Falls FALSE, entscheiden die Prozeduren anhand ihrer Thresholds.
+                sync_log(v_id, p_force);
+                sync_monitor(v_id, p_force);
+                sync_process(v_id, p_force);
+                
+                -- 4. Überprüfung: Ist die Session jetzt "sauber"?
+                -- Nur wenn ALLE Buffer für diesen Prozess auf 0 sind, 
+                -- darf er aus der Queue fliegen.
+                IF p_force OR (
+                       nvl(g_sessionList(v_idx).log_dirty_count, 0) = 0 
+                   AND nvl(g_sessionList(v_idx).monitor_dirty_count, 0) = 0
+                   AND NOT g_sessionList(v_idx).process_is_dirty
+                ) THEN
+                    g_dirty_queue.DELETE(v_id);
+                END IF;
+            ELSE
+                -- Session existiert nicht mehr in der Master-Liste? 
+                -- Dann sofort aus der Queue entfernen (Cleanup).
+                g_dirty_queue.DELETE(v_id);
+            END IF;
+            
+            -- 5. Zum nächsten Element springen
+            v_id := v_next_id;
+        END LOOP;
+    END;
 
     --------------------------------------------------------------------------
     -- Write monitor data to detail table
@@ -917,7 +966,7 @@ dbms_output.put_line('DEBUG: Key=' || v_key ||
         );
 
     end;
-    
+        
     --------------------------------------------------------------------------
     -- Check if a single step needs more time than average over all steps per action
     --------------------------------------------------------------------------
@@ -1006,7 +1055,7 @@ dbms_output.put_line('DEBUG: Key=' || v_key ||
         g_monitor_groups(v_key)(g_monitor_groups(v_key).LAST) := v_new_rec;
                 
         validateDurationInAverage(p_processId, v_new_rec);
-        sync_monitor(p_processId);
+        sync_all_dirty;
         
     exception
         when others then
@@ -1315,37 +1364,34 @@ dbms_output.put_line('DEBUG: Key=' || v_key ||
         pragma autonomous_transaction;
         sqlStatement varchar2(600);
     begin
-dbms_output.put_line('Beginn persist_new_session');
-	        sqlStatement := '
-	        insert into PH_MASTER_TABLE (
-	            id,
-	            process_name,
-	            process_start,
-				last_update,
-	            process_end,
-	            steps_todo,
-	            steps_done,
-	            status,
-                log_level,
-	            info
-	        )
-	        values (
-	            :PH_PROCESS_ID, 
-	            :PH_PROCESS_NAME, 
-	            current_timestamp,
-				current_timestamp,
-                null,
-	            :PH_STEPS_TO_DO, 
-	            null,
-	            null,
-                :PH_LOG_LEVEL,
-	            ''START''
-            )';
-            sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, p_TabNameMaster);
-	        execute immediate sqlStatement using p_processId, p_processName, p_stepsToDo, p_logLevel;     
-	        commit;
-dbms_output.put_line('Ende persist_new_session');
-
+        sqlStatement := '
+        insert into PH_MASTER_TABLE (
+            id,
+            process_name,
+            process_start,
+            last_update,
+            process_end,
+            steps_todo,
+            steps_done,
+            status,
+            log_level,
+            info
+        )
+        values (
+            :PH_PROCESS_ID, 
+            :PH_PROCESS_NAME, 
+            current_timestamp,
+            current_timestamp,
+            null,
+            :PH_STEPS_TO_DO, 
+            null,
+            null,
+            :PH_LOG_LEVEL,
+            ''START''
+        )';
+        sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, p_TabNameMaster);
+        execute immediate sqlStatement using p_processId, p_processName, p_stepsToDo, p_logLevel;     
+        commit;
 	exception
 	    when others then
 	        rollback; -- Auch im Fehlerfall die Transaktion beenden
@@ -1404,7 +1450,6 @@ dbms_output.put_line('Ende persist_new_session');
     /*
 		Public functions and procedures
     */
-
     procedure sync_log(p_processId number, p_force boolean default false)
     is
         v_idx            pls_integer;
@@ -1413,9 +1458,7 @@ dbms_output.put_line('Ende persist_new_session');
     begin
         -- 1. Index der Session holen
         v_idx := v_indexSession(p_processId);
-    
-dbms_output.put_line('sync_log für processId ' || p_processId || ' - dirty count: ' || g_sessionList(v_idx).log_dirty_count);
-    
+        
         -- 3. Zeit seit dem letzten Log-Flush berechnen
         -- (get_ms_diff ist Ihre optimierte Funktion)
         if g_sessionList(v_idx).last_log_flush is null then
@@ -1423,9 +1466,7 @@ dbms_output.put_line('sync_log für processId ' || p_processId || ' - dirty coun
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_log_flush, v_now);
         end if;
-        
-dbms_output.put_line('Threshold millis: ' || g_flush_millis_threshold || '; Zeit für ' || p_processId || ' vergangen seit letztem sync_log: ' || v_ms_since_flush);
-    
+            
         -- 4. Flush-Bedingung: Menge ODER Zeit ODER Force
         if p_force 
            or g_sessionList(v_idx).log_dirty_count >= g_flush_log_threshold 
@@ -1447,54 +1488,6 @@ dbms_output.put_line('Threshold millis: ' || g_flush_millis_threshold || '; Zeit
             end if;
     end;
 
-    --------------------------------------------------------------------
-    -- Alle Dirty Einträge für alle Sessions wegschreiben
-    --------------------------------------------------------------------
-    PROCEDURE SYNC_ALL_DIRTY(p_force BOOLEAN DEFAULT FALSE) 
-    IS
-        v_id      BINARY_INTEGER;
-        v_next_id BINARY_INTEGER;
-        v_idx     PLS_INTEGER;
-    BEGIN
-        -- Wir starten am Anfang der "Dreckigen Liste"
-        v_id := g_dirty_queue.FIRST;
-        
-        WHILE v_id IS NOT NULL LOOP
-            -- 1. Zeiger auf das nächste Element sichern, bevor wir evtl. DELETE machen
-            v_next_id := g_dirty_queue.NEXT(v_id);
-            
-            -- 2. Index der Session-Metadaten holen
-            -- (Wir nutzen v_indexSession, um sicherzustellen, dass die Session noch existiert)
-            IF v_indexSession.EXISTS(v_id) THEN
-                v_idx := v_indexSession(v_id);
-    
-                -- 3. Synchronisation aller drei Bereiche für diesen Prozess
-                -- Falls p_force=TRUE (z.B. Shutdown), wird sofort geschrieben.
-                -- Falls FALSE, entscheiden die Prozeduren anhand ihrer Thresholds.
-                sync_log(v_id, p_force);
-                sync_monitor(v_id, p_force);
-                sync_process(v_id, p_force);
-                
-                -- 4. Überprüfung: Ist die Session jetzt "sauber"?
-                -- Nur wenn ALLE Buffer für diesen Prozess auf 0 sind, 
-                -- darf er aus der Queue fliegen.
-                IF p_force OR (
-                       nvl(g_sessionList(v_idx).log_dirty_count, 0) = 0 
-                   AND nvl(g_sessionList(v_idx).monitor_dirty_count, 0) = 0
-                   AND NOT g_sessionList(v_idx).process_is_dirty
-                ) THEN
-                    g_dirty_queue.DELETE(v_id);
-                END IF;
-            ELSE
-                -- Session existiert nicht mehr in der Master-Liste? 
-                -- Dann sofort aus der Queue entfernen (Cleanup).
-                g_dirty_queue.DELETE(v_id);
-            END IF;
-            
-            -- 5. Zum nächsten Element springen
-            v_id := v_next_id;
-        END LOOP;
-    END SYNC_ALL_DIRTY;
 	--------------------------------------------------------------------------
     
     procedure log_anyRemote(
@@ -1519,7 +1512,6 @@ dbms_output.put_line('Threshold millis: ' || g_flush_millis_threshold || '; Zeit
             returning varchar2
         )
         into l_payload from dual;
-dbms_output.put_line('sendNoWait ->' || l_payload);
         sendNoWait('LOG_ANY', l_payload, 5);
                 
     EXCEPTION
@@ -1544,22 +1536,12 @@ dbms_output.put_line('sendNoWait ->' || l_payload);
     )
     as
     begin
-dbms_output.enable();
-dbms_output.put_line('log_any processId: ' || p_processId);
         if is_remote(p_processId) then
-dbms_output.put_line('Remote p_processId, Aufruf von log_anyRemote');
+dbms_output.enable();
+dbms_output.put_line('DEBUG: log_any remote path for ID ' || p_processId);
             log_anyRemote(p_processId, p_level, p_logText, SUBSTRB(p_errStack, 1, 400), SUBSTRB(p_errBacktrace, 1, 400), SUBSTRB(p_errCallstack, 1, 400));
             return;
         end if;
-dbms_output.put_line('Jetzt sollte gelogged werden...');
-
-if v_indexSession.EXISTS(p_processId) then
-    dbms_output.put_line('Procedure LOG_ANY: v_indexSession existiert ' || p_processId);
-end if;
-
-dbms_output.put_line('Procedure LOG_ANY p_level: ' || p_level);
-dbms_output.put_line('Procedure LOG_ANY g_sessionList(v_indexSession(p_processId)).log_level: ' || g_sessionList(v_indexSession(p_processId)).log_level);
-
 
         -- Hier nur weiter, wenn nicht remote
         if v_indexSession.EXISTS(p_processId) and p_level <= g_sessionList(v_indexSession(p_processId)).log_level then
@@ -1572,17 +1554,14 @@ dbms_output.put_line('Procedure LOG_ANY g_sessionList(v_indexSession(p_processId
             DBMS_UTILITY.FORMAT_CALL_STACK
         );
         end if;
-dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
 
         if p_level = logLevelError then
             -- in case of an error, performace is not the
             -- first problem of the parent process 
-            sync_process(p_processId, true);
-            sync_log(p_processId, true);
-            sync_monitor(p_processId, true);        
+            SYNC_ALL_DIRTY(true);
+       
         else
-            sync_log(p_processId);
-            sync_process(p_processId); -- master also because of the last_update timestamp
+            sync_all_dirty;
         end if;
         
     exception
@@ -1678,7 +1657,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
 
             g_sessionList(v_indexSession(p_processId)).process_is_dirty := TRUE;
             g_dirty_queue(p_processId) := TRUE; -- Damit SYNC_ALL_DIRTY die Session sieht
-            sync_process(p_processId);
+            SYNC_ALL_DIRTY;
             
         end if;
         
@@ -1720,7 +1699,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
         if v_indexSession.EXISTS(p_processId) then
 --            g_sessionList(v_idx).steps_done := p_stepsDone;
             g_process_cache(p_processId).steps_done := p_stepsDone;
-            sync_process(p_processId);
+            SYNC_ALL_DIRTY;
        end if;
 
     end;
@@ -1735,8 +1714,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
         if v_indexSession.EXISTS(p_processId) then
 --            g_sessionList(v_idx).steps_done := g_sessionList(v_idx).steps_done + 1;   
             g_process_cache(p_processId).steps_done := g_process_cache(p_processId).steps_done + 1;
-
-            sync_process(p_processId);
+            SYNC_ALL_DIRTY;
         end if;
     end;
     
@@ -1866,9 +1844,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
         v_idx PLS_INTEGER;
     begin
         if v_indexSession.EXISTS(p_processId) then
-            sync_process(p_processId, true);
-            sync_log(p_processId, true);
-            sync_monitor(p_processId, true);
+            SYNC_ALL_DIRTY(true);
 
 --            if  logLevelSilent <= g_sessionList(v_indexSession(p_processId)).log_level then
                 v_idx := v_indexSession(p_processId);
@@ -1971,154 +1947,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
     end;
         
     --------------------------------------------------------------------------
-    
-    FUNCTION GET_LATEST_CONFIG(p_timeout_sec IN NUMBER DEFAULT 5) RETURN CLOB IS
-        l_report    CLOB;
-        l_line      VARCHAR2(120) := RPAD('-', 100, '-') || CHR(10);
-        l_sql       VARCHAR2(2000);
-        l_cursor    SYS_REFCURSOR;
-        l_response  VARCHAR2(1800);
-        l_json_doc   VARCHAR2(2000);
-        -- Variablen für die Spalten
-        v_f_millis  NUMBER;
-        v_f_log     NUMBER;
-        v_f_proc    NUMBER;
-        v_f_mon     NUMBER;
-        v_m_factor  NUMBER;
-        v_m_max     NUMBER;
-    BEGIN
-        -- B. Header für den Report
-        l_report := l_line || ' LATEST ACTIVE CONFIGURATION REPORT' || CHR(10) || l_line;
         
-        l_response := waitForResponse(
-            p_request       => 'GET_LATEST_CONFIG',
-            p_payload       => '{"info":"REQUEST_FROM_' || USER || '"}',
-            p_timeoutSec   => 5
-        );
-
-        CASE
-            WHEN l_response = 'TIMEOUT' THEN
-                l_report := l_report || '-- Warnung: Instanz antwortet nicht (Timeout). Zeige alten Tabellenstand.' || CHR(10);
-                
-            WHEN l_response = 'THROTTLED' THEN
-                l_report := l_report || '-- Info: Daten sind noch aktuell (10s Throttling aktiv).' || CHR(10);
-                
-            WHEN l_response LIKE 'ERROR%' THEN
-                l_report := l_report || '-- Fehler: ' || l_response || CHR(10);
-            else
-            -- Erfolgsfall: JSON parsen
-            l_json_doc := '{' || l_response || '}';
-            BEGIN
-                SELECT j.*
-                INTO v_f_log, v_f_millis, v_f_proc, v_f_mon, v_m_factor, v_m_max
-                FROM JSON_TABLE(l_json_doc, '$'
-                    COLUMNS (
-                        f_log    NUMBER PATH '$.FLUSH_LOG_THRESHOLD',
-                        f_millis NUMBER PATH '$.FLUSH_MILLIS_THRESHOLD',
-                        f_proc   NUMBER PATH '$.FLUSH_PROCESS_THRESHOLD',
-                        f_mon    NUMBER PATH '$.FLUSH_MONITOR_THRESHOLD',
-                        m_factor NUMBER PATH '$.MONITOR_ALERT_THRESHOLD_FACTOR',
-                        m_max    NUMBER PATH '$.MAX_ENTRIES_PER_MONITOR_ACTION'
-                    )
-                ) j;
-
-                l_report := l_report || 
-                    RPAD('FLUSH_LOG_THRESHOLD', 35) || ': ' || v_f_log || CHR(10) ||
-                    RPAD('FLUSH_MILLIS_THRESHOLD', 35) || ': ' || v_f_millis || CHR(10) ||
-                    RPAD('FLUSH_PROCESS_THRESHOLD', 35) || ': ' || v_f_proc || CHR(10) ||
-                    RPAD('FLUSH_MONITOR_THRESHOLD', 35) || ': ' || v_f_mon || CHR(10) ||
-                    RPAD('MONITOR_FACTOR', 35) || ': ' || v_m_factor || CHR(10) ||
-                    RPAD('MONITOR_MAX', 35) || ': ' || v_m_max || CHR(10);
-                    
-            EXCEPTION
-                WHEN OTHERS THEN
-                    l_report := l_report || '-- Fehler: bei Verarbeitung der Antwort: ' || SQLERRM || CHR(10);
-            END;
-        end case;
-
-        l_report := l_report || l_line;
-        RETURN l_report;
-        
-    EXCEPTION
-        WHEN OTHERS THEN
-            l_report := l_report || 'ERROR: Could not read configuration from ' || CONFIG_TABLE || CHR(10) || SQLERRM || CHR(10);
-
-    END;
-
-    -------------------------------------------------------------------------
-    
-    FUNCTION LIST_ACTIVE_SESSIONS(p_timeout_sec IN NUMBER DEFAULT 5) RETURN CLOB IS
-        l_report    CLOB;
-        l_line      VARCHAR2(200) := RPAD('-', 120, '-') || CHR(10);
-        
-        l_cursor    SYS_REFCURSOR;
-        l_sql       VARCHAR2(2000);
-        
-        v_id        NUMBER;
-        v_name      VARCHAR2(100);
-        v_start     TIMESTAMP;
-        v_lvl       NUMBER;
-        v_todo      NUMBER;
-        v_done      NUMBER;
-    BEGIN
-        l_report := l_line || ' LATEST ACTIVE CONFIGURATION REPORT' || CHR(10) || l_line;
-        
-        case waitForSignal('LILA_REQUEST', 'LILA_PERSISTED', 'REQUEST_FROM_' || USER, p_timeout_sec)
-            when 0 THEN
-                l_report := l_report || '-- Status: Daten frisch von Instanz erhalten.' || CHR(10);
-            when 1 then
-                l_report := l_report || '-- Warnung: Instanz antwortet nicht (Timeout). Zeige alten Tabellenstand.' || CHR(10);
-            when -1 then
-                l_report := l_report || '-- Info: Lese Tabelle direkt (10s Throttling aktiv).' || CHR(10);
-        end case;
-    
-        -- 3. Header für den Report bauen
-        l_report := l_report || l_line ||
-                    RPAD('PROCESS_ID', 12) || ' | ' ||
-                    RPAD('NAME', 20) || ' | ' ||
-                    RPAD('START_TIME', 20) || ' | ' ||
-                    RPAD('LVL', 4) || ' | ' ||
-                    RPAD('TODO', 8) || ' | ' ||
-                    RPAD('DONE', 8) || CHR(10) ||
-                    l_line;
-                                   
-        
-        -- Dynamisches SQL zusammenbauen
-        -- Wir nutzen CONFIG_TABLE (deine Variable/Konstante für den Namen)
-        l_sql := ' SELECT process_id, process_name, process_start, log_level, steps_todo, steps_done ' ||
-                 ' FROM ' || CONFIG_TABLE ||
-                 ' WHERE is_active = 1
-                   ORDER BY process_name, process_start DESC';
-
-        BEGIN
-            OPEN l_cursor FOR l_sql;
-            LOOP
-                FETCH l_cursor INTO v_id, v_name, v_start, v_lvl, v_todo, v_done;
-                EXIT WHEN l_cursor%NOTFOUND;
-    
-                l_report := l_report || 
-                    RPAD(NVL(TO_CHAR(v_id), ' '), 12) || ' | ' ||
-                    RPAD(NVL(SUBSTR(v_name, 1, 20), ' '), 20) || ' | ' ||
-                    RPAD(NVL(TO_CHAR(v_start, 'DD.MM.YY HH24:MI'), ' '), 20) || ' | ' ||
-                    RPAD(NVL(TO_CHAR(v_lvl), ' '), 4) || ' | ' ||
-                    RPAD(NVL(TO_CHAR(v_todo), ' '), 8) || ' | ' ||
-                    RPAD(NVL(TO_CHAR(v_done), ' '), 8) || CHR(10);
-            END LOOP;
-            CLOSE l_cursor;
-            
-        EXCEPTION
-            WHEN OTHERS THEN
-                l_report := l_report || 'ERROR: Table ' || CONFIG_TABLE || ' could not be read.' || CHR(10);
-                IF l_cursor%ISOPEN THEN CLOSE l_cursor; END IF;
-        END;
-
-        
-        l_report := l_report || l_line;        
-        RETURN l_report;
-    END;
-    
-    --------------------------------------------------------------------------
-    
     function extractFromJsonStr(p_json_doc varchar2, jsonPath varchar2) return varchar2
     as
     begin
@@ -2171,9 +2000,7 @@ dbms_output.put_line('Procedure LOG_ANY Nach dem write_to_log_buffer');
         l_errBacktrace := extractFromJsonStr(l_payload, 'err_backtr');
         l_errCallstack := extractFromJsonStr(l_payload, 'err_callstack');
         
-dbms_output.put_line('Loggen für die processId: ' || l_processId);
         log_any(l_processId, l_level, l_logText, l_errStack, l_errBacktrace, l_errCallstack);
-        COMMIT;
     end;
     
     procedure doRemote_newSession(p_clientChannel varchar2, p_message VARCHAR2)
@@ -2181,6 +2008,7 @@ dbms_output.put_line('Loggen für die processId: ' || l_processId);
         l_processId number;
         l_payload varchar2(1600);
         l_session_init t_session_init;
+        l_status PLS_INTEGER;
     begin
         -- {header{}, meta{}, payload{"process_name":"mein_prozess", "log_level": 1}}
         l_payload := JSON_QUERY(p_message, '$.payload');
@@ -2191,9 +2019,9 @@ dbms_output.put_line('Loggen für die processId: ' || l_processId);
         l_session_init.tabNameMaster := extractFromJsonStr(l_payload, 'tabname_master');        
 
         l_processId := NEW_SESSION(l_session_init);
-        DBMS_ALERT.SIGNAL(p_clientChannel, '{"process_id" : ' || l_processId || '}');
-        COMMIT; -- Wichtig: Signal und Daten werden sichtbar
-
+        DBMS_PIPE.RESET_BUFFER; -- Koffer leeren
+        DBMS_PIPE.PACK_MESSAGE('{"process_id":' || l_processId || '}');        
+        l_status := DBMS_PIPE.SEND_MESSAGE(p_clientChannel, timeout => 1);
     end;    
     
 	-------------------------------------------------------------------------- 
@@ -2205,9 +2033,7 @@ dbms_output.put_line('Loggen für die processId: ' || l_processId);
             p_request       => 'EXIT',
             p_payload       => p_message,
             p_timeoutSec    => 2
-        );
-                
-        dbms_output.put_line(l_response);
+        );                
     end;
 
     
@@ -2215,14 +2041,11 @@ dbms_output.put_line('Loggen für die processId: ' || l_processId);
     as
         l_response varchar2(1000);
     begin
-        dbms_output.enable();
         l_response := waitForResponse(
             p_request       => 'ANY_MSG',
             p_payload       => p_message,
             p_timeoutSec    => 5
         );
-
-        dbms_output.put_line(l_response);
     end;
     
 	--------------------------------------------------------------------------    
@@ -2233,10 +2056,7 @@ dbms_output.put_line('Loggen für die processId: ' || l_processId);
         l_payload   varchar2(1000);
         l_response  varchar2(100);        
         jasonObj    JSON_OBJECT_T := JSON_OBJECT_T();
-    begin
-dbms_output.enable();
-dbms_output.put_line('Function SERVER_NEW_SESSION: ' || p_payload);
-        
+    begin        
         l_response := waitForResponse('NEW_SESSION', p_payload, 5);
         
         CASE
@@ -2262,63 +2082,91 @@ dbms_output.put_line('Function SERVER_NEW_SESSION: ' || p_payload);
         return -200;
     end;
     
+    
+PROCEDURE DUMP_BUFFER_STATS AS
+    v_key VARCHAR2(100);
+    v_log_total NUMBER := 0;
+    v_mon_total NUMBER := 0;
+BEGIN
+dbms_output.enable();
+
+    -- 1. Logs zählen
+    v_key := g_log_groups.FIRST;
+    WHILE v_key IS NOT NULL LOOP
+        v_log_total := v_log_total + g_log_groups(v_key).COUNT;
+        v_key := g_log_groups.NEXT(v_key);
+    END LOOP;
+
+    -- 2. Monitore zählen
+    v_key := g_monitor_groups.FIRST;
+    WHILE v_key IS NOT NULL LOOP
+        v_mon_total := v_mon_total + g_monitor_groups(v_key).COUNT;
+        v_key := g_monitor_groups.NEXT(v_key);
+    END LOOP;
+
+    DBMS_OUTPUT.PUT_LINE('--- LILA BUFFER DIAGNOSE ---');
+    DBMS_OUTPUT.PUT_LINE('Sessions in Queue: ' || g_dirty_queue.COUNT);
+    DBMS_OUTPUT.PUT_LINE('Gepufferte Logs:   ' || v_log_total);
+    DBMS_OUTPUT.PUT_LINE('Gepufferte Monit.: ' || v_mon_total);
+    DBMS_OUTPUT.PUT_LINE('Master-Cache:      ' || g_process_cache.COUNT);
+END;
+    
 	--------------------------------------------------------------------------
     
     PROCEDURE START_SERVER
     as
+v_key VARCHAR2(100); 
+--counter_incoming number := 0;
         l_clientChannel  varchar2(30);
-        l_message   VARCHAR2(1800);
+        l_message       VARCHAR2(32767);
         l_status    INTEGER;
         l_timeout   NUMBER := 10; -- Timeout nach 10 Minuten Warten
         l_request   VARCHAR2(100);
         l_json_doc  VARCHAR2(2000);
         
         l_localSession number(19,0);
+        l_dummyRes PLS_INTEGER;
+        l_exitSignal BOOLEAN := FALSE;
         l_stop_server_exception EXCEPTION;
     begin
-dbms_output.enable();
         l_localSession := NEW_SESSION('LILA_SERVER', logLevelDebug);
-        dbms_output.put_line('Server process ID: ' || l_localSession);
-
-        DBMS_ALERT.REGISTER('LILA_REQUEST');
+--        DBMS_ALERT.REGISTER('LILA_REQUEST');
     
+        -- Pipe erstellen (Public oder Private, Kapazität hier 1MB für High-Load)
+        l_dummyRes := DBMS_PIPE.CREATE_PIPE(g_pipeName, maxpipesize => 1048576);
+        DBMS_PIPE.PURGE(g_pipeName); 
+        
         LOOP -- DIES IST DIE ENDLOSSCHLEIFE
-            -- 1. In den Standby-Modus gehen und warten
-            -- Der Prozess verbraucht hier keine CPU!
-            DBMS_ALERT.WAITONE('LILA_REQUEST', l_message, l_status, l_timeout);
-    
+            -- Warten auf die nächste Nachricht (Timeout in Sekunden)
+            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => 10);
             IF l_status = 0 THEN  
             BEGIN 
+                DBMS_PIPE.UNPACK_MESSAGE(l_message);
                 l_clientChannel := extractClientChannel(l_message);
                 l_request := extractClientRequest(l_message);
                                 
                 CASE l_request
                     WHEN 'EXIT' then
-                        dbms_output.enable();
-                        dbms_output.put_line(extractFromJsonStr(l_message, 'payload.msg'));
-                        DBMS_ALERT.SIGNAL(l_clientChannel, 'Bla');
-                        COMMIT;
-                        exit;
+                        l_exitSignal := TRUE;
+                exit;
+--                        DBMS_ALERT.SIGNAL(l_clientChannel, 'Bla');
                         
                     WHEN 'ANY_MSG' then
-                        dbms_output.enable();
                         DBMS_ALERT.SIGNAL(l_clientChannel, extractFromJsonStr(l_message, 'payload.msg'));
-                        COMMIT;
+--                        COMMIT;
                         
                         
                     WHEN 'NEW_SESSION' THEN
-            dbms_output.put_line('WHEN NEW_SESSION: ' || l_message);
                         doRemote_newSession(l_clientChannel, l_message);
 
                     WHEN 'LOG_ANY' then
-        dbms_output.put_line('WHEN LOG_ANY');
                         doRemote_logAny(l_message);
 
                     ELSE 
                         -- Unbekanntes Tag loggen
                         warn(l_localSession, 'Unknown request: ' || l_request);
                 END CASE;
-                COMMIT; -- Wichtig: Signal und Daten werden sichtbar
+--                COMMIT; -- Wichtig: Signal und Daten werden sichtbar
 
                 EXCEPTION
                     WHEN l_stop_server_exception THEN
@@ -2329,32 +2177,30 @@ dbms_output.enable();
                     WHEN OTHERS THEN
                         -- WICHTIG: Fehler loggen, aber die Schleife NICHT verlassen!
                         ERROR(l_localSession, 'Kritischer Fehler bei Verarbeitung eines Kommandos: ' || SQLERRM);
-                        DBMS_OUTPUT.PUT_LINE('Kritischer Fehler bei Verarbeitung eines Kommandos: ' || SQLERRM);
-                        ROLLBACK;
+--                        ROLLBACK;
                 END;
-    
+            
             ELSIF l_status = 1 THEN
                 -- Timeout erreicht. Passiert, wenn 10 Minuten kein Signal kam.
-                -- Wir loggen das evtl. kurz, dann geht die Schleife von vorne los.
-                DBMS_OUTPUT.PUT_LINE('Timeout erreicht. Warte weiter...');
-    
-            ELSE
-                -- Anderer Fehler
-                DBMS_OUTPUT.PUT_LINE('Fehler beim Warten: ' || l_status);
-            END IF;
+                -- Housekeeping
+                SYNC_ALL_DIRTY;
+            end if;
             
-        dbms_output.put_line('Aufruf der Syncs in Loop');
-            sync_process(l_localSession);
-            sync_log(l_localSession);
-            sync_monitor(l_localSession);
+            EXIT when l_status != 0 and l_exitSignal;
             
         END LOOP;
-        
-            sync_process(l_localSession, true);
-            sync_log(l_localSession, true);
-            sync_monitor(l_localSession, true);
+            
+        sync_all_dirty(true);
 
-    
+    v_key := TO_CHAR(l_localSession);        
+    IF g_log_groups.EXISTS(v_key) THEN
+        DBMS_OUTPUT.PUT_LINE('Logs im Buffer für '||v_key||': '|| lila.g_log_groups(v_key).COUNT);
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Keine Logs im Buffer für '||v_key);
+    END IF;
+        
+DUMP_BUFFER_STATS;
+
         -- Dieser Teil wird nie erreicht, solange die DB-Session aktiv ist
         DBMS_ALERT.REMOVEALL;
         close_session(l_localSession);
@@ -2367,8 +2213,7 @@ dbms_output.enable();
         DBMS_ALERT.REMOVE('LILA_REQUEST');
     
     WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Kritischer Fehler in der Daemon-Schleife: ' || SQLERRM);
-            -- Hier müsste man ggf. Loggen und entscheiden, ob man RAISE; macht oder die Schleife beendet.
+        null;
     end;
 
     ------------------------------------------------------------------------
