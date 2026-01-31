@@ -21,6 +21,11 @@ Die Buffered-Mechanismen arbeiten auf Basis von Mengen-Thresholds und Zeit-Thres
 
 Damit sich LILA als ein einziges Tool für die unterschiedlichsten Szenarien präsentiert, ist der gesamte Code in einem Paket (.pks + .pkb).
 
+
+## Wichtig für MARK_STEP und STEP_DONE
+Problem: Wenn die Pipe (wie neulich) voll ist oder der Server 3 Sekunden "schläft", verfälscht die Wartezeit in der Pipe die avg_action_time, wenn der Server erst beim Auspacken den Zeitstempel nimmt.
+Lösung: Der Client sollte beim MARK_STEP seinen lokalen Zeitstempel (SYSTIMESTAMP) mit in die Pipe packen. Der Server nutzt diesen Wert für die Differenzberechnung. So misst du die echte Business-Logik-Zeit und nicht die Infrastruktur-Latenz.
+
 ## Hinweis auf Multi-Channel-Logging
 LILA kann im Parallelbetrieb (standalone und remote zugleich) arbeiten.
 
