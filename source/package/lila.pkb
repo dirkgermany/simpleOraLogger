@@ -2250,7 +2250,7 @@ create or replace PACKAGE BODY LILA AS
         l_clientChannel  varchar2(30);
         l_message       VARCHAR2(32767);
         l_status    PLS_INTEGER;
-        l_timeout   NUMBER := 3; -- Timeout nach Sekunden Warten auf Nachricht
+        l_timeout   NUMBER := 1; -- Timeout nach Sekunden Warten auf Nachricht
         l_request   VARCHAR2(100);
         l_json_doc  VARCHAR2(2000);        
         l_dummyRes PLS_INTEGER;
@@ -2260,9 +2260,10 @@ create or replace PACKAGE BODY LILA AS
         g_serverProcessId := new_session('LILA_REMOTE_SERVER', logLevelWarn);
         -- Pipe erstellen (Public oder Private, Kapazität hier 1MB für High-Load)
         g_remote_sessions.DELETE;
+        DBMS_PIPE.RESET_BUFFER;
         DBMS_PIPE.PURGE(g_pipeName); 
         l_dummyRes := DBMS_PIPE.REMOVE_PIPE(g_pipeName);
-        l_dummyRes := DBMS_PIPE.CREATE_PIPE(pipename => g_pipeName, maxpipesize => 1048576, private => false);
+        l_dummyRes := DBMS_PIPE.CREATE_PIPE(pipename => g_pipeName, maxpipesize => 166777216, private => false);
         
         LOOP
             -- Warten auf die nächste Nachricht (Timeout in Sekunden)
