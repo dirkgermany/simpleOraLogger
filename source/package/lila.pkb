@@ -1942,6 +1942,61 @@ DBMS_OUTPUT.PUT_LINE('!!! FORCE DELETE VERSUCH FUER: ' || v_key);
     end;
 
 	--------------------------------------------------------------------------
+
+    PROCEDURE clearAllSessionData(p_processId NUMBER) 
+    IS
+        v_idx           PLS_INTEGER;
+        v_search_prefix CONSTANT VARCHAR2(50) := LPAD(p_processId, 20, '0') || '|';
+        v_key           VARCHAR2(100);
+        v_next_key      VARCHAR2(100);
+    BEGIN
+        -- A) MONITOR-DATEN & CACHES RÄUMEN
+        -- Wir nutzen den sicheren Loop (Sichern vor Löschen)
+        v_key := g_monitor_groups.FIRST;
+        WHILE v_key IS NOT NULL LOOP
+            v_next_key := g_monitor_groups.NEXT(v_key);
+            
+            IF v_key LIKE v_search_prefix || '%' THEN
+                -- Historie löschen
+                g_monitor_groups.DELETE(v_key);
+                -- Caches löschen
+                IF v_cache_avg.EXISTS(v_key)   THEN v_cache_avg.DELETE(v_key);   END IF;
+                IF v_cache_last.EXISTS(v_key)  THEN v_cache_last.DELETE(v_key);  END IF;
+                IF v_cache_count.EXISTS(v_key) THEN v_cache_count.DELETE(v_key); END IF;
+            END IF;
+            v_key := v_next_key;
+        END LOOP;
+    
+        -- B) LOG-GRUPPEN RÄUMEN
+        -- Da g_log_groups ebenfalls mit der ID als Key (String) arbeitet:
+        IF g_log_groups.EXISTS(TO_CHAR(p_processId)) THEN
+            g_log_groups.DELETE(TO_CHAR(p_processId));
+        END IF;
+    
+        -- C) DIRTY QUEUE RÄUMEN
+        IF g_dirty_queue.EXISTS(p_processId) THEN
+            g_dirty_queue.DELETE(p_processId);
+        END IF;
+    
+        -- D) SESSION-METADATEN (MASTER-LISTE) RÄUMEN
+        IF v_indexSession.EXISTS(p_processId) THEN
+            v_idx := v_indexSession(p_processId);
+            g_sessionList.DELETE(v_idx);     -- Eintrag in der Nested Table (Slot wird leer)
+            v_indexSession.DELETE(p_processId); -- Wegweiser löschen
+        END IF;
+    
+        -- E) PROZESS CACHE RÄUMEN
+        IF g_process_cache.EXISTS(p_processId) THEN
+            g_process_cache.DELETE(p_processId);
+        END IF;
+    
+    EXCEPTION
+        WHEN OTHERS THEN
+            -- Hier optional Loggen, falls beim Cleanup was schief geht
+            RAISE;
+    END;
+    
+	--------------------------------------------------------------------------
     
     PROCEDURE CLOSE_SESSION(p_processId NUMBER, p_processInfo VARCHAR2, p_status PLS_INTEGER)
     as
@@ -2006,11 +2061,15 @@ DBMS_OUTPUT.PUT_LINE('!!! FORCE DELETE VERSUCH FUER: ' || v_key);
                 g_sessionList(v_idx).steps_done := p_stepsDone;        
                 persist_close_session(p_processId,  g_sessionList(v_idx).tabName_master, p_stepsToDo, p_stepsDone, p_processInfo, p_status);
                 
+                clearAllSessionData(p_processId);
+
+/*
                 -- Eintrag aus internem Speicher entfernen
                 g_sessionList.delete(v_indexSession(p_processId));
                 v_indexSession.delete(p_processId); -- Auch den Index-Eintrag entfernen!
                 
                 g_process_cache.delete(p_processId);
+*/
 --            end if;
         end if;
     end;
@@ -2324,7 +2383,7 @@ DBMS_OUTPUT.PUT_LINE('!!! FORCE DELETE VERSUCH FUER: ' || v_key);
         -- 2. Monitore zählen
         v_key := g_monitor_groups.FIRST;
         WHILE v_key IS NOT NULL LOOP
-    DBMS_OUTPUT.PUT_LINE('Gefundener Key im Speicher: "' || v_key || '"');
+            DBMS_OUTPUT.PUT_LINE('Gefundener Key im Speicher: "' || v_key || '"');
             v_mon_total := v_mon_total + g_monitor_groups(v_key).COUNT;
             v_key := g_monitor_groups.NEXT(v_key);
         END LOOP;
@@ -2454,6 +2513,12 @@ DBMS_OUTPUT.PUT_LINE('!!! FORCE DELETE VERSUCH FUER: ' || v_key);
         
         -- es könnten noch dirty buffered Einträge existieren
         sync_all_dirty(true, true);
+        
+        IF g_serverProcessId != -1 THEN
+            DBMS_OUTPUT.PUT_LINE('Finaler Cleanup für Server-ID: ' || g_serverProcessId);
+            clearAllSessionData(g_serverProcessId);
+        END IF;
+
         DBMS_PIPE.PURGE(g_pipeName); 
         g_remote_sessions.DELETE;
 
