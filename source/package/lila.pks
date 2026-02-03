@@ -17,8 +17,10 @@ LILA_VERSION constant varchar2(20) := 'v1.3.0';
     -- ==================
     TXT_ACK_OK       CONSTANT VARCHAR2(30) := 'SERVER_ACK_OK';
     NUM_ACK_OK       CONSTANT PLS_INTEGER  := 1000;
+    TXT_ACK_DECLINE  CONSTANT VARCHAR2(30) := 'SERVER_ACK_DECLINE';
+    NUM_ACK_DECLINE  CONSTANT PLS_INTEGER  := 1001;
     TXT_ACK_SHUTDOWN CONSTANT VARCHAR2(30) := 'SERVER_ACK_SHUTDOWN';
-    NUM_ACK_SHUTDOWN CONSTANT PLS_INTEGER  := 1001;
+    NUM_ACK_SHUTDOWN CONSTANT PLS_INTEGER  := 1010;
     TXT_PING_ECHO    CONSTANT VARCHAR2(30) := 'PING_ECHO';
     NUM_PING_ECHO CONSTANT PLS_INTEGER  := 100;
     TXT_SERVER_INFO    CONSTANT VARCHAR2(30) := 'SERVER_INFO';
@@ -98,11 +100,12 @@ LILA_VERSION constant varchar2(20) := 'v1.3.0';
     FUNCTION GET_METRIC_STEPS(p_processId NUMBER, p_actionName VARCHAR2) return NUMBER;
     
 
-    PROCEDURE START_SERVER;
+    FUNCTION CREATE_SERVER(p_password varchar2) RETURN VARCHAR2;
+    procedure START_SERVER(p_pipeName varchar2, p_password varchar2);
     FUNCTION SERVER_NEW_SESSION(p_payload varchar2) RETURN NUMBER;
 
     procedure SERVER_SEND_ANY_MSG(p_processId number, p_message varchar2);
-    procedure SERVER_SHUTDOWN(p_pipeName varchar2, p_message varchar2);
+    procedure SERVER_SHUTDOWN(p_processId number, p_pipeName varchar2, p_password varchar2);
     procedure SHUTDOWN_ALL_SERVERS;
 
     
