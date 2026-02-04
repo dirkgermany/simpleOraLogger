@@ -19,9 +19,7 @@ create or replace PACKAGE BODY LILA AS
         process_is_dirty    BOOLEAN,
         last_process_flush  TIMESTAMP,
         last_sync_check     TIMESTAMP,
-        tabName_master      VARCHAR2(100),
-        throttle_msg_count  PLS_INTEGER := 0,      -- NEU: Counter pro Session
-        throttle_last_check TIMESTAMP := SYSTIMESTAMP -- NEU: Zeitstempel pro Session
+        tabName_master      VARCHAR2(100)
     );
 
     -- Table for several processes
@@ -36,6 +34,18 @@ create or replace PACKAGE BODY LILA AS
     -- Index ist die Session-ID, Wert ist beliebig (hier Boolean)
     TYPE t_remote_sessions IS TABLE OF BOOLEAN INDEX BY BINARY_INTEGER;
     g_remote_sessions t_remote_sessions;
+    
+-- Im Package Body
+TYPE t_throttle_stat IS RECORD (
+    msg_count  PLS_INTEGER := 0,
+    last_check TIMESTAMP    := SYSTIMESTAMP
+);
+
+-- Indexiert nach p_processId
+TYPE t_throttle_tab IS TABLE OF t_throttle_stat INDEX BY BINARY_INTEGER;
+
+-- Der eigentliche Cache im RAM des sendenden Servers
+g_local_throttle_cache t_throttle_tab;
 
     ---------------------------------------------------------------
     -- Processes
@@ -168,25 +178,25 @@ create or replace PACKAGE BODY LILA AS
     ---------------------------------------------------------------
     PROCEDURE initialize_map IS
     BEGIN
-        IF g_response_codes.COUNT = 0 THEN
+        if g_response_codes.COUNT = 0 THEN
             g_response_codes(TXT_ACK_SHUTDOWN) := NUM_ACK_SHUTDOWN;
             g_response_codes(TXT_ACK_OK)       := NUM_ACK_OK;
             g_response_codes(TXT_ACK_DECLINE)  := NUM_ACK_DECLINE;
             g_response_codes(TXT_PING_ECHO)    := NUM_PING_ECHO;
             g_response_codes(TXT_SERVER_INFO)  := NUM_SERVER_INFO;
     
-        END IF;
+        end if ;
     END initialize_map;
     
     FUNCTION get_serverCode(p_txt VARCHAR2) RETURN PLS_INTEGER IS
     BEGIN
         initialize_map; -- Stellt sicher, dass die Map befüllt ist
         
-        IF g_response_codes.EXISTS(p_txt) THEN
+        if g_response_codes.EXISTS(p_txt) THEN
             RETURN g_response_codes(p_txt);
         ELSE
             RETURN -1; -- Oder eine Exception werfen
-        END IF;
+        end if ;
     END;
     
     ---------------------------------------------------------------
@@ -245,7 +255,7 @@ create or replace PACKAGE BODY LILA AS
     begin
 dbms_output.enable();
         -- 1. Cache-Check (PGA)
-        IF g_routing_cache.EXISTS(l_key) THEN
+        if g_routing_cache.EXISTS(l_key) THEN
             l_slotIdx := g_routing_cache(l_key);
         ELSE
             -- beim allerersten mal start bei 0
@@ -254,28 +264,28 @@ dbms_output.enable();
                 if g_pipe_pool(g_current_slot_idx).is_active then
                     l_slotIdx := g_current_slot_idx;
                     exit;
-                end if;
+                end if ;
                 g_current_slot_idx := MOD(nvl(g_current_slot_idx, 0), g_pipe_pool.COUNT) + 1;   
             end loop;
 
             -- 4. Finaler Check
-            IF l_slotIdx = -1 THEN
+            if l_slotIdx = -1 THEN
                 g_current_slot_idx := 0;
                 RAISE_APPLICATION_ERROR(-20004, 'LILA: Kein aktiver Server gefunden.');
-            END IF;
+            end if ;
         
             g_routing_cache(l_key) := l_slotIdx;
             RETURN g_pipe_pool(l_slotIdx).pipe_name;
-        END IF;
+        end if ;
     
         -- Sicherheits-Check: Existiert der Slot in der Liste?
         RETURN g_pipe_pool(l_slotIdx).pipe_name;
     
     EXCEPTION
         WHEN OTHERS THEN
-            IF SQLCODE BETWEEN -20999 AND -20000 THEN
+            if SQLCODE BETWEEN -20999 AND -20000 THEN
                 RAISE; 
-            END IF;
+            end if ;
             -- Wenn alles reißt: Hardcoded Pipe zurückgeben
             RETURN null; 
     end;
@@ -315,14 +325,14 @@ dbms_output.enable();
         DBMS_PIPE.PACK_MESSAGE(l_msgSend);
         l_status := DBMS_PIPE.SEND_MESSAGE(l_serverPipe, timeout => 3);
         l_statusReceive := DBMS_PIPE.RECEIVE_MESSAGE(l_clientChannel, timeout => p_timeoutSec);
-        IF l_statusReceive = 0 THEN
+        if l_statusReceive = 0 THEN
             DBMS_PIPE.UNPACK_MESSAGE(l_msgReceive);
-        END IF;
+        end if ;
         
         DBMS_PIPE.PURGE(l_clientChannel);
         l_status := DBMS_PIPE.REMOVE_PIPE(l_clientChannel);
         
-        IF l_statusReceive = 1 THEN RETURN 'TIMEOUT'; END IF;
+        if l_statusReceive = 1 THEN RETURN 'TIMEOUT'; end if ;
         return l_msgReceive;
     end;
     
@@ -349,15 +359,15 @@ dbms_output.enable();
         DBMS_PIPE.PACK_MESSAGE(l_msg);
         if DBMS_PIPE.SEND_MESSAGE(p_pipeName, timeout => p_timeout) = 0 then
             l_statusReceive := DBMS_PIPE.RECEIVE_MESSAGE(l_clientChannel, timeout => p_timeout);
-            IF l_statusReceive = 0 THEN
+            if l_statusReceive = 0 THEN
                 DBMS_PIPE.UNPACK_MESSAGE(l_msg);
-            END IF;
+            end if ;
 
             DBMS_PIPE.PURGE(l_clientChannel);
             l_status := DBMS_PIPE.REMOVE_PIPE(l_clientChannel);
-        end if;
+        end if ;
         
-        IF l_statusReceive !=0  THEN RETURN FALSE; END IF;
+        if l_statusReceive !=0  THEN RETURN FALSE; end if ;
         return TRUE;
     end;
 
@@ -373,7 +383,7 @@ dbms_output.enable();
         
         FOR i IN 1..g_pipe_pool.COUNT LOOP
             -- 1. Check: Antwortet der Server auf der Pipe?
-            IF pingServer(g_pipe_pool(i).pipe_name, p_pingTime) THEN
+            if pingServer(g_pipe_pool(i).pipe_name, p_pingTime) THEN
                 g_pipe_pool(i).is_active := TRUE;
             ELSE
                 -- 2. Check: Wenn Ping fehlschlägt, frage die "Source of Truth" (Scheduler)
@@ -382,12 +392,12 @@ dbms_output.enable();
                 FROM user_scheduler_jobs 
                 WHERE job_name = 'LILA_SRV_SLOT_' || i;
     
-                IF l_job_exists > 0 THEN
+                if l_job_exists > 0 THEN
                     g_pipe_pool(i).is_active := TRUE; -- Der Slot ist definitiv belegt!
                 ELSE
                     g_pipe_pool(i).is_active := FALSE;
-                END IF;
-            END IF;
+                end if ;
+            end if ;
             -- Das Sleep nach dem Ping ist gut, um dem Scheduler Luft zu verschaffen
             DBMS_SESSION.SLEEP(0.1); 
         END LOOP;
@@ -408,7 +418,7 @@ dbms_output.enable();
             null;
 --        else
 --            null;
---        end if;
+--        end if ;
         
     exception
         when others then
@@ -423,26 +433,33 @@ dbms_output.enable();
     IS
         l_now TIMESTAMP := SYSTIMESTAMP;
         l_diff_millis PLS_INTEGER;
-        r_sess t_session_rec := g_sessionList(p_processId); 
     BEGIN
-        IF NOT g_is_high_perf THEN
-            r_sess.throttle_msg_count := r_sess.throttle_msg_count + 1;          
-            -- Alle n Nachrichten Check durchführen (z.B. 10000)
-            IF r_sess.throttle_msg_count >= C_THROTTLE_LIMIT then
-                -- Berechnung der Differenz in Sekunden
-                l_diff_millis := get_ms_diff(r_sess.throttle_last_check, l_now);
-    
-                IF l_diff_millis < C_THROTTLE_INTERVAL THEN
-                    -- Stoppe die Flut, um dem Server Luft zu verschaffen
+        if NOT g_is_high_perf THEN 
+            -- In nicht hochperformanten Umgebungen den Client etwas einbremsen
+            if NOT g_local_throttle_cache.EXISTS(p_processId) THEN
+                g_local_throttle_cache(p_processId).msg_count := 0;
+                g_local_throttle_cache(p_processId).last_check := l_now;
+            end if ;
+        
+            -- Counter hochzählen
+            g_local_throttle_cache(p_processId).msg_count := g_local_throttle_cache(p_processId).msg_count + 1;
+        
+            -- Check-Intervall erreicht?
+            if g_local_throttle_cache(p_processId).msg_count >= C_THROTTLE_LIMIT THEN
+                l_diff_millis := get_ms_diff(g_local_throttle_cache(p_processId).last_check, l_now);
+        
+                -- Wenn zu schnell gefeuert wurde
+                if l_diff_millis < C_THROTTLE_INTERVAL THEN
+                    -- Erzwinge Synchronisation (Warten auf Server-Antwort)
+                    -- Das verschafft dem Remote-Server die nötige "Atempause"
                     send_sync_signal(p_processId);
---                    DBMS_SESSION.SLEEP(C_THROTTLE_SLEEP);
-                END IF;
-    
-                -- Reset
-                r_sess.throttle_msg_count := 0;
-                r_sess.throttle_last_check := l_now;
-            END IF;
-        END IF;
+                end if ;
+        
+                -- Reset für das nächste Fenster
+                g_local_throttle_cache(p_processId).msg_count := 0;
+                g_local_throttle_cache(p_processId).last_check := l_now;
+            end if ;
+        end if ;
     END;
 
     --------------------------------------------------------------------------
@@ -461,8 +478,8 @@ dbms_output.enable();
         l_meta      varchar2(140);
         l_data      varchar2(1500);
         l_status    PLS_INTEGER;
-        l_now              TIMESTAMP := SYSTIMESTAMP;
-        l_retryInterval    INTERVAL DAY TO SECOND := INTERVAL '30' SECOND;
+        l_now           TIMESTAMP := SYSTIMESTAMP;
+        l_retryInterval INTERVAL DAY TO SECOND := INTERVAL '30' SECOND;
     begin
         stabilizeInLowPerfEnvironments(p_processId);
         l_header := '"header":{"msg_type":"API_CALL", "request":"' || p_request || '"}';
@@ -470,14 +487,12 @@ dbms_output.enable();
         l_data  := '"payload":' || p_payLoad;
         
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
-            
         l_pipeName := getServerPipeForSession(p_processId);
-            
         DBMS_PIPE.PACK_MESSAGE(l_msg);
         l_status := DBMS_PIPE.SEND_MESSAGE(l_pipeName, timeout => p_timeoutSec);
-        IF l_status != 0 THEN
+        if l_status != 0 THEN
             null;
-        END IF;
+        end if ;
         
     exception
         when others then
@@ -494,7 +509,7 @@ dbms_output.enable();
            and g_sessionList(v_indexSession(p_processId)).log_level >= logLevelDebug 
         then
             return true;
-        end if;
+        end if ;
         return false;
     exception
         when others then return false; -- Sicherheit geht vor
@@ -533,7 +548,7 @@ dbms_output.enable();
             return true;
         else
             return false;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -563,7 +578,7 @@ dbms_output.enable();
         if not objectExists('SEQ_LILA_LOG', 'SEQUENCE') then
             sqlStmt := 'CREATE SEQUENCE SEQ_LILA_LOG MINVALUE 0 MAXVALUE 9999999999999999999999999999 INCREMENT BY 1 START WITH 1 CACHE 10 NOORDER  NOCYCLE  NOKEEP  NOSCALE  GLOBAL';
             execute immediate sqlStmt;
-        end if;
+        end if ;
         
         if not objectExists(p_TabNameMaster, 'TABLE') then
             -- Master table
@@ -583,7 +598,7 @@ dbms_output.enable();
             )';
             sqlStmt := replaceNameMasterTable(sqlStmt, PARAM_MASTER_TABLE, p_TabNameMaster);
             run_sql(sqlStmt);
-        end if;
+        end if ;
 
         if not objectExists(p_TabNameMaster || SUFFIX_DETAIL_NAME, 'TABLE') then
             -- Details table
@@ -608,7 +623,7 @@ dbms_output.enable();
             sqlStmt := replaceNameDetailTable(sqlStmt, PARAM_DETAIL_TABLE, p_TabNameMaster);
             run_sql(sqlStmt);
             
-        end if;
+        end if ;
         
         if not objectExists('idx_lila_detail_master', 'INDEX') then
             sqlStmt := '
@@ -616,7 +631,7 @@ dbms_output.enable();
 			ON PH_DETAIL_TABLE (process_id)';
             sqlStmt := replaceNameDetailTable(sqlStmt, PARAM_DETAIL_TABLE, p_TabNameMaster);
             run_sql(sqlStmt);
-        end if;
+        end if ;
 
         if not objectExists('idx_lila_cleanup', 'INDEX') then
             sqlStmt := '
@@ -624,7 +639,7 @@ dbms_output.enable();
 			ON PH_MASTER_TABLE (process_name, process_end)';
             sqlStmt := replaceNameMasterTable(sqlStmt, PARAM_MASTER_TABLE, p_TabNameMaster);
             run_sql(sqlStmt);
-        end if;
+        end if ;
 
     exception      
         when others then
@@ -645,7 +660,7 @@ dbms_output.enable();
 	begin
         if p_daysToKeep is null then
             return;
-        end if;
+        end if ;
 
         -- find out process IDs
         sqlStatement := '
@@ -656,7 +671,7 @@ dbms_output.enable();
         sessionRec := getSessionRecord(p_processId);
         if sessionRec.process_id is null then
             return; 
-        end if;
+        end if ;
         
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);
 
@@ -683,11 +698,11 @@ dbms_output.enable();
 	    when others then
 	        if t_rc%isopen then 
                 close t_rc;
-            end if;
+            end if ;
 	        rollback; -- Auch im Fehlerfall die Transaktion beenden
             if should_raise_error(p_processId) then
                 RAISE;
-            end if;
+            end if ;
 	end;
     
 	--------------------------------------------------------------------------
@@ -699,7 +714,7 @@ dbms_output.enable();
             return g_process_cache(p_processId);
         else
             return null;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -730,7 +745,7 @@ dbms_output.enable();
         if sessionRec.process_id is not null then
             sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, sessionRec.tabName_master);
             execute immediate sqlStatement into processRec USING p_processId;
-        end if;
+        end if ;
         return processRec;
         
     exception
@@ -739,7 +754,7 @@ dbms_output.enable();
                 RAISE;
             else
                 return null;
-            end if;
+            end if ;
     end;
         
     --------------------------------------------------------------------------
@@ -774,7 +789,7 @@ dbms_output.enable();
             rollback;
 --            if should_raise_error(p_processId) then
                 raise;
---            end if;
+--            end if ;
 
     end;
     
@@ -800,7 +815,7 @@ dbms_output.enable();
         -- 1. Prüfen, ob Daten für diesen Prozess im Cache sind
         if not g_log_groups.EXISTS(v_key) or g_log_groups(v_key).COUNT = 0 then
             return;
-        end if;
+        end if ;
         -- 2. Ziel-Tabelle aus der Session-Liste ermitteln
         v_idx_session := v_indexSession(p_processId);
         v_targetTable := g_sessionList(v_idx_session).tabName_master || SUFFIX_DETAIL_NAME;
@@ -839,7 +854,7 @@ dbms_output.enable();
             -- Zentrale Fehlerbehandlung nutzen
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
     
 	--------------------------------------------------------------------------
@@ -864,7 +879,7 @@ dbms_output.enable();
         -- 1. Gruppe initialisieren
         if not g_log_groups.EXISTS(v_key) then
             g_log_groups(v_key) := t_log_history_tab();
-        end if;
+        end if ;
     
         -- 2. Record befüllen
         v_new_log.process_id    := p_processId; -- Jetzt vorhanden
@@ -920,14 +935,14 @@ dbms_output.enable();
                       v_user, v_host;
             
             commit;
-        end if;
+        end if ;
     exception
         when others then
             rollback;
             -- Fehler-Logging hier sinnvoll, da autonome Transaktion den Fehler sonst "verschluckt"
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
     
     --------------------------------------------------------------------
@@ -947,12 +962,12 @@ BEGIN
     WHILE v_id IS NOT NULL LOOP
         v_next_id := g_dirty_queue.NEXT(v_id);
         
-        IF v_indexSession.EXISTS(v_id) THEN
+        if v_indexSession.EXISTS(v_id) THEN
             v_idx := v_indexSession(v_id);
 
             -- Zeitstempel-Check (Cooldown-Logik)
             -- Bei Force oder Shutdown ignorieren wir die Wartezeit
-            IF NOT p_force AND NOT p_isShutdown
+            if NOT p_force AND NOT p_isShutdown
                AND g_sessionList(v_idx).last_sync_check IS NOT NULL 
                AND (SYSTIMESTAMP - g_sessionList(v_idx).last_sync_check) < INTERVAL '1' SECOND 
             THEN
@@ -965,18 +980,18 @@ BEGIN
                 g_sessionList(v_idx).last_sync_check := SYSTIMESTAMP;
                 
                 -- Überprüfung: Ist die Session jetzt "sauber"?
-                IF p_force OR p_isShutdown OR (
+                if p_force OR p_isShutdown OR (
                        nvl(g_sessionList(v_idx).log_dirty_count, 0) = 0 
                    AND nvl(g_sessionList(v_idx).monitor_dirty_count, 0) = 0
                    AND NOT g_sessionList(v_idx).process_is_dirty
                 ) THEN
                     g_dirty_queue.DELETE(v_id);
                     g_sessionList(v_idx).last_sync_check := NULL;
-                END IF;
-            END IF;
+                end if ;
+            end if ;
         ELSE
             g_dirty_queue.DELETE(v_id);
-        END IF;
+        end if ;
         
         v_id := v_next_id;
     END LOOP;
@@ -985,7 +1000,7 @@ BEGIN
     -- TEIL 2: MASTER-CLEANUP BEI SHUTDOWN
     -- Hier räumen wir die RAM-Reste (Round-Robin) aller bekannten Sessions weg
     -- ======================================================================
-    IF p_isShutdown THEN
+    if p_isShutdown THEN
         v_id := v_indexSession.FIRST;
         WHILE v_id IS NOT NULL LOOP
             -- flushMonitor direkt aufrufen, um is_flushed=1 Einträge zu löschen.
@@ -998,7 +1013,7 @@ BEGIN
         -- Falls am Ende wirklich ALLES weg soll (komplette Package-Variablen leeren):
         -- g_monitor_groups.DELETE;
         -- g_dirty_queue.DELETE;
-        END IF;
+        end if ;
 
     END SYNC_ALL_DIRTY;
 
@@ -1038,7 +1053,7 @@ BEGIN
         
                 -- 3. Radikaler Kahlschlag im RAM (SGA/PGA Hygiene)
                 g_monitor_groups(v_group_key).DELETE;
-            end if;
+            end if ;
     
             v_group_key := g_monitor_groups.NEXT(v_group_key);
         end loop;
@@ -1055,11 +1070,11 @@ BEGIN
                 p_times        => v_times
             );
             g_sessionList(v_idx_session).monitor_dirty_count := 0;
-        end if;
+        end if ;
     
     exception
         when others then
-            if should_raise_error(p_processId) then RAISE; end if;
+            if should_raise_error(p_processId) then RAISE; end if ;
     end flushMonitor;
 
 	--------------------------------------------------------------------------
@@ -1074,7 +1089,7 @@ BEGIN
         -- 1. Index der Session holen
         if not v_indexSession.EXISTS(p_processId) then
             return;
-        end if;
+        end if ;
         v_idx := v_indexSession(p_processId);
 
         -- Falls noch nie geflusht wurde (Start), setzen wir die Differenz hoch
@@ -1082,7 +1097,7 @@ BEGIN
             v_ms_since_flush := g_flush_millis_threshold + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_monitor_flush, v_now);
-        end if;
+        end if ;
         -- 4. Die "Smarte" Flush-Bedingung: Menge ODER Zeit ODER Force
         if p_force 
            or g_sessionList(v_idx).monitor_dirty_count >= g_flush_monitor_threshold 
@@ -1093,14 +1108,14 @@ BEGIN
             -- Reset der prozessspezifischen Steuerungsdaten
             g_sessionList(v_idx).monitor_dirty_count := 0;
             g_sessionList(v_idx).last_monitor_flush  := v_now;
-        end if;
+        end if ;
                 
     exception
         when others then
             -- Sicherheit für das Framework: Fehler im Flush dürfen Applikation nicht stoppen
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
     
     --------------------------------------------------------------------------
@@ -1129,7 +1144,7 @@ BEGIN
         -- Erster Messwert: Der Durchschnitt ist der Wert selbst
         if v_meas_count = 1 then
             return p_new_value;
-        end if;
+        end if ;
     
         -- Gleitender Durchschnitt über n Intervalle
         -- Formel: ((Schnitt_alt * (n-1)) + Wert_neu) / n
@@ -1171,11 +1186,11 @@ BEGIN
     as
         l_threshold_duration NUMBER;
     begin
-        IF p_monitor_rec.steps_done > 5 THEN 
+        if p_monitor_rec.steps_done > 5 THEN 
             
             l_threshold_duration := p_monitor_rec.avg_action_time * g_monitor_alert_threshold_factor;
         
-            IF p_monitor_rec.used_time > l_threshold_duration THEN
+            if p_monitor_rec.used_time > l_threshold_duration THEN
                 -- Hier wird die Alert-Aktion ausgelöst
                 raise_alert(
                     p_processId => p_processId,
@@ -1184,8 +1199,8 @@ BEGIN
                     p_used_time => p_monitor_rec.used_time,
                     p_expected  => p_monitor_rec.avg_action_time
                 );
-            END IF;
-        END IF;
+            end if ;
+        end if ;
 
     end;
     
@@ -1213,7 +1228,7 @@ BEGIN
         WHEN OTHERS THEN
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
 
     end;
     
@@ -1238,24 +1253,24 @@ BEGIN
         if is_remote(p_processId) then
             insertMonitorRemote(p_processId, p_actionName, p_timestamp);
             return;
-        end if;
+        end if ;
 
         -- 0. Monitoring-Check (Log-Level Prüfung)
         if v_indexSession.EXISTS(p_processId) and 
            logLevelMonitor > g_sessionList(v_indexSession(p_processId)).log_level then
             return;
-        end if;
+        end if ;
 
         v_now := nvl(p_timestamp, systimestamp);
 
-        IF NOT g_monitor_groups.EXISTS(v_key) THEN
+        if NOT g_monitor_groups.EXISTS(v_key) THEN
             g_monitor_groups(v_key) := t_monitor_history_tab();
-        END IF;
+        end if ;
         g_monitor_groups(v_key).EXTEND;
         l_new_idx := g_monitor_groups(v_key).LAST;
         
         -- Die nächsten Werte abhängig davon ob es einen Vorgänger gibt
-        IF g_monitor_shadows.EXISTS(v_key) then            -- Es gibt einen Vorgänger
+        if g_monitor_shadows.EXISTS(v_key) then            -- Es gibt einen Vorgänger
             l_prev := g_monitor_shadows(v_key);
             g_monitor_groups(v_key)(l_new_idx).steps_done      := l_prev.steps_done + 1;
             g_monitor_groups(v_key)(l_new_idx).used_time       := get_ms_diff(l_prev.action_time, v_now);
@@ -1269,7 +1284,7 @@ BEGIN
             g_monitor_groups(v_key)(l_new_idx).steps_done      := 1;
             g_monitor_groups(v_key)(l_new_idx).used_time       := 0; -- Erster Marker hat keine Dauer
             g_monitor_groups(v_key)(l_new_idx).avg_action_time := 0;
-        END IF;
+        end if ;
         
         g_monitor_groups(v_key)(l_new_idx).process_id  := p_processId;
         g_monitor_groups(v_key)(l_new_idx).action_name := p_actionName;
@@ -1288,7 +1303,7 @@ BEGIN
         when others then
             if should_raise_error(p_processId) then
                 RAISE;
-            end if;
+            end if ;
     end;
 
     --------------------------------------------------------------------------
@@ -1301,7 +1316,7 @@ BEGIN
         -- 1. Historie löschen
         if g_monitor_groups.EXISTS(v_key) then
             g_monitor_groups.DELETE(v_key);
-        end if;
+        end if ;
     end;
 
     --------------------------------------------------------------------------
@@ -1318,8 +1333,8 @@ BEGIN
             if g_monitor_groups(v_key).COUNT > 0 then
                 -- Den letzten Eintrag (LAST) der verschachtelten Liste zurückgeben
                 return g_monitor_groups(v_key)(g_monitor_groups(v_key).LAST);
-            end if;
-        end if;
+            end if ;
+        end if ;
     
         -- Falls nichts gefunden wurde, wird ein leerer Record zurückgegeben
         return v_empty;
@@ -1329,7 +1344,7 @@ BEGIN
             -- Hier nutzen wir deine neue zentrale Fehler-Logik
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
             return v_empty;
     end;
 
@@ -1341,14 +1356,14 @@ BEGIN
     begin
         if not g_monitor_groups.EXISTS(v_key) then
             return false;
-        end if;
+        end if ;
         return (g_monitor_groups(v_key).COUNT > 0);
     
     exception
         when others then
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
             return false;
     end;
     
@@ -1397,7 +1412,7 @@ BEGIN
     -- Return value is NULL BUT! datatype RECORD cannot be validated by IS NULL.
     -- RECORDs are always initialized.
     -- So you have to check by something like
-    -- IF getSessionRecord(my_id).process_id IS NULL ...
+    -- if getSessionRecord(my_id).process_id IS NULL ...
     function getSessionRecord(p_processId number) return t_session_rec
     as
         listIndex number;
@@ -1407,7 +1422,7 @@ BEGIN
         else
             listIndex := v_indexSession(p_processId);
             return g_sessionList(listIndex);
-        end if;
+        end if ;
 
     end;
 
@@ -1432,7 +1447,7 @@ BEGIN
     begin
         if g_sessionList is null then
                 g_sessionList := t_session_tab(); 
-        end if;
+        end if ;
 
         if getSessionRecord(p_processId).process_id is null then
             -- neuer Datensatz
@@ -1440,7 +1455,7 @@ BEGIN
             v_new_idx := g_sessionList.last;
         else
             v_new_idx := v_indexSession(p_processId);
-        end if;
+        end if ;
 
         g_sessionList(v_new_idx).process_id         := p_processId;
 --        g_sessionList(v_new_idx).serial_no          := 0;
@@ -1491,7 +1506,7 @@ BEGIN
 	        rollback; -- Auch im Fehlerfall die Transaktion beenden
             if should_raise_error(p_process_rec.id) then
                 RAISE;
-            end if;
+            end if ;
     end;
  
     -------------------------------------------------------------------
@@ -1511,16 +1526,16 @@ BEGIN
 
         if p_stepsDone is not null then
             sqlStatement := sqlStatement || ', steps_done = :PH_STEPS_DONE';
-        end if;
+        end if ;
         if p_stepsToDo is not null then
             sqlStatement := sqlStatement || ', steps_todo = :PH_STEPS_TO_DO';
-        end if;
+        end if ;
         if p_processInfo is not null then
             sqlStatement := sqlStatement || ', info = :PH_PROCESS_INFO';
-        end if;     
+        end if ;     
         if p_status is not null then
             sqlStatement := sqlStatement || ', status = :PH_STATUS';
-        end if;     
+        end if ;     
         
         sqlStatement := sqlStatement || ' where id = :PH_PROCESS_ID'; 
         sqlStatement := replaceNameMasterTable(sqlStatement, PARAM_MASTER_TABLE, p_tableName);
@@ -1532,16 +1547,16 @@ BEGIN
 
         if p_stepsDone is not null then
             DBMS_SQL.BIND_VARIABLE(sqlCursor, ':PH_STEPS_DONE', p_stepsDone);
-        end if;
+        end if ;
         if p_stepsToDo is not null then
             DBMS_SQL.BIND_VARIABLE(sqlCursor, ':PH_STEPS_TO_DO', p_stepsToDo);
-        end if;
+        end if ;
         if p_processInfo is not null then
             DBMS_SQL.BIND_VARIABLE(sqlCursor, ':PH_PROCESS_INFO', p_processInfo);
-        end if;     
+        end if ;     
         if p_status is not null then
             DBMS_SQL.BIND_VARIABLE(sqlCursor, ':PH_STATUS', p_status);
-        end if;     
+        end if ;     
 
         updateCount := DBMS_SQL.EXECUTE(sqlCursor);
         DBMS_SQL.CLOSE_CURSOR(sqlCursor);
@@ -1550,14 +1565,14 @@ BEGIN
                 
     EXCEPTION
         WHEN OTHERS THEN
-            IF DBMS_SQL.IS_OPEN(sqlCursor) THEN
+            if DBMS_SQL.IS_OPEN(sqlCursor) THEN
                 DBMS_SQL.CLOSE_CURSOR(sqlCursor);
-            END IF;
+            end if ;
             sqlCursor := null;
 			rollback;
             if should_raise_error(p_processId) then
                 RAISE;
-            end if;
+            end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1600,7 +1615,7 @@ BEGIN
 	        rollback; -- Auch im Fehlerfall die Transaktion beenden
             if should_raise_error(p_processId) then
                 RAISE;
-            end if;
+            end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1614,7 +1629,7 @@ BEGIN
         -- 1. Sicherstellen, dass die Session im Server/Standalone bekannt ist
         if not v_indexSession.EXISTS(p_processId) then
             return;
-        end if;
+        end if ;
     
         v_idx := v_indexSession(p_processId);
     
@@ -1623,7 +1638,7 @@ BEGIN
             v_ms_since_flush := g_flush_millis_threshold + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_process_flush, v_now);
-        end if;
+        end if ;
     
         -- 3. Die "Smarte" Flush-Bedingung
         -- Wir flushen nur, wenn FORCE (z.B. Session-Ende), der Zeit-Threshold erreicht ist
@@ -1639,14 +1654,14 @@ BEGIN
                 -- Reset der prozessspezifischen Steuerungsdaten
                 g_sessionList(v_idx).process_is_dirty   := FALSE;
                 g_sessionList(v_idx).last_process_flush := v_now;
-            end if;
-        end if;
+            end if ;
+        end if ;
     
     exception
         when others then
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;    
 	--------------------------------------------------------------------------
 
@@ -1662,7 +1677,7 @@ BEGIN
         -- 1. Index der Session holen
         if not v_indexSession.EXISTS(p_processId) then
             return;
-        end if;
+        end if ;
         v_idx := v_indexSession(p_processId);
         g_sessionList(v_idx).log_dirty_count := nvl(g_sessionList(v_idx).log_dirty_count, 0) + 1;
         g_dirty_queue(p_processId) := TRUE;
@@ -1672,7 +1687,7 @@ BEGIN
             v_ms_since_flush := g_flush_millis_threshold + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_log_flush, v_now);
-        end if;
+        end if ;
         -- 4. Flush-Bedingung: Menge ODER Zeit ODER Force
         if p_force 
            or g_sessionList(v_idx).log_dirty_count >= g_flush_log_threshold 
@@ -1684,14 +1699,14 @@ BEGIN
             -- Steuerungsdaten für diesen Prozess zurücksetzen
             g_sessionList(v_idx).log_dirty_count := 0;
             g_sessionList(v_idx).last_log_flush  := v_now;
-        end if;
+        end if ;
                 
     exception
         when others then
             -- Sicherheit für das Framework: Fehler im Flush dürfen Applikation nicht stoppen
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1720,13 +1735,13 @@ BEGIN
            l_serverMsg := 'close_sessionRemote: ' || l_response;
         else
             l_serverMsg := extractFromJsonStr(l_response, 'payload.server_message');
-        end if;        
+        end if ;        
                 
     EXCEPTION
         WHEN OTHERS THEN
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1752,7 +1767,7 @@ BEGIN
         WHEN OTHERS THEN
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
 
     end;
     
@@ -1772,7 +1787,7 @@ BEGIN
         if is_remote(p_processId) then
             log_anyRemote(p_processId, p_level, p_logText, p_errStack, p_errBacktrace, p_errCallstack);
             return;
-        end if;
+        end if ;
 
         -- Hier nur weiter, wenn nicht remote
         if v_indexSession.EXISTS(p_processId) and p_level <= g_sessionList(v_indexSession(p_processId)).log_level then
@@ -1784,7 +1799,7 @@ BEGIN
                 null,
                 DBMS_UTILITY.FORMAT_CALL_STACK
             );
-        end if;
+        end if ;
 
         if p_level = logLevelError then
             -- in case of an error, performace is not the
@@ -1793,14 +1808,14 @@ BEGIN
        
         else
             sync_all_dirty;
-        end if;
+        end if ;
         
     exception
         when others then
             -- Sicherheit für das Framework: Fehler im Flush dürfen Applikation nicht stoppen
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
     
 	--------------------------------------------------------------------------
@@ -1881,23 +1896,23 @@ BEGIN
     as
     begin
        if v_indexSession.EXISTS(p_processId) then
-            if p_status      is not null then g_process_cache(p_processId).status := p_status;        end if;
-            if p_processInfo is not null then g_process_cache(p_processId).info := p_processInfo;     end if;
-            if p_stepsToDo   is not null then g_process_cache(p_processId).steps_toDo := p_stepsToDo; end if;
-            if p_stepsDone   is not null then g_process_cache(p_processId).steps_done := p_stepsDone; end if;
+            if p_status      is not null then g_process_cache(p_processId).status := p_status;        end if ;
+            if p_processInfo is not null then g_process_cache(p_processId).info := p_processInfo;     end if ;
+            if p_stepsToDo   is not null then g_process_cache(p_processId).steps_toDo := p_stepsToDo; end if ;
+            if p_stepsDone   is not null then g_process_cache(p_processId).steps_done := p_stepsDone; end if ;
 
             g_sessionList(v_indexSession(p_processId)).process_is_dirty := TRUE;
             g_dirty_queue(p_processId) := TRUE; -- Damit SYNC_ALL_DIRTY die Session sieht
             SYNC_ALL_DIRTY;
             
-        end if;
+        end if ;
         
     exception
         when others then
             -- Sicherheit für das Framework: Fehler im Flush dürfen Applikation nicht stoppen
             if should_raise_error(p_processId) then
                 raise;
-            end if;
+            end if ;
     end;
 
     procedure SET_PROCESS_STATUS(p_processId number, p_status PLS_INTEGER, p_processInfo varchar2)
@@ -1931,7 +1946,7 @@ BEGIN
 --            g_sessionList(v_idx).steps_done := p_stepsDone;
             g_process_cache(p_processId).steps_done := p_stepsDone;
             SYNC_ALL_DIRTY;
-       end if;
+       end if ;
 
     end;
     
@@ -1946,7 +1961,7 @@ BEGIN
 --            g_sessionList(v_idx).steps_done := g_sessionList(v_idx).steps_done + 1;   
             g_process_cache(p_processId).steps_done := g_process_cache(p_processId).steps_done + 1;
             SYNC_ALL_DIRTY;
-        end if;
+        end if ;
     end;
     
 	--------------------------------------------------------------------------
@@ -1957,7 +1972,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId);
         else return null;
-        end if;
+        end if ;
     end;
 
     FUNCTION GET_STEPS_DONE(p_processId NUMBER) return PLS_INTEGER
@@ -1966,7 +1981,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).steps_done;
         else return 0;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1977,7 +1992,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).steps_todo;
         else return 0;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -1988,7 +2003,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).process_start;
         else return null;
-        end if;
+        end if ;
     end;
     
 	--------------------------------------------------------------------------
@@ -1999,7 +2014,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).process_end;
         else return null;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -2010,7 +2025,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).status;
         else return 0;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -2021,7 +2036,7 @@ BEGIN
         if v_indexSession.EXISTS(p_processId) then
             return g_process_cache(p_processId).info;
         else return null;
-        end if;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -2039,35 +2054,35 @@ BEGIN
         WHILE v_key IS NOT NULL LOOP
             v_next_key := g_monitor_groups.NEXT(v_key);
             
-            IF v_key LIKE v_search_prefix || '%' THEN
+            if v_key LIKE v_search_prefix || '%' THEN
                 -- Historie löschen
                 g_monitor_groups.DELETE(v_key);
-            END IF;
+            end if ;
             v_key := v_next_key;
         END LOOP;
     
         -- B) LOG-GRUPPEN RÄUMEN
         -- Da g_log_groups ebenfalls mit der ID als Key (String) arbeitet:
-        IF g_log_groups.EXISTS(TO_CHAR(p_processId)) THEN
+        if g_log_groups.EXISTS(TO_CHAR(p_processId)) THEN
             g_log_groups.DELETE(TO_CHAR(p_processId));
-        END IF;
+        end if ;
     
         -- C) DIRTY QUEUE RÄUMEN
-        IF g_dirty_queue.EXISTS(p_processId) THEN
+        if g_dirty_queue.EXISTS(p_processId) THEN
             g_dirty_queue.DELETE(p_processId);
-        END IF;
+        end if ;
     
         -- D) SESSION-METADATEN (MASTER-LISTE) RÄUMEN
-        IF v_indexSession.EXISTS(p_processId) THEN
+        if v_indexSession.EXISTS(p_processId) THEN
             v_idx := v_indexSession(p_processId);
             g_sessionList.DELETE(v_idx);     -- Eintrag in der Nested Table (Slot wird leer)
             v_indexSession.DELETE(p_processId); -- Wegweiser löschen
-        END IF;
+        end if ;
     
         -- E) PROZESS CACHE RÄUMEN
-        IF g_process_cache.EXISTS(p_processId) THEN
+        if g_process_cache.EXISTS(p_processId) THEN
             g_process_cache.DELETE(p_processId);
-        END IF;
+        end if ;
         
         -- F) Monitor Shadows löschen
             -- Wir starten am Anfang der Schatten-Map
@@ -2075,10 +2090,10 @@ BEGIN
     
         WHILE v_key IS NOT NULL LOOP
             -- Wenn der Key zu diesem Prozess gehört, löschen wir den Eintrag
-            IF v_key LIKE v_search_prefix || '%' THEN
+            if v_key LIKE v_search_prefix || '%' THEN
                 g_monitor_shadows.DELETE(v_key);
                 -- Optional: DBMS_OUTPUT.PUT_LINE('Shadow gelöscht für: ' || v_key);
-            END IF;
+            end if ;
             
             -- Zum nächsten Key springen
             v_key := g_monitor_shadows.NEXT(v_key);
@@ -2150,7 +2165,7 @@ BEGIN
             close_sessionRemote(p_processId, p_stepsToDo, p_stepsDone, p_processInfo, p_status);
             g_remote_sessions.delete(p_processId);
             return;
-        end if;
+        end if ;
 
         -- Hier nur weiter, wenn lokale processId
         if v_indexSession.EXISTS(p_processId) then
@@ -2163,8 +2178,8 @@ BEGIN
                 
                 clearAllSessionData(p_processId);
 
---            end if;
-        end if;
+--            end if ;
+        end if ;
     end;
 
 	--------------------------------------------------------------------------
@@ -2175,11 +2190,11 @@ BEGIN
         v_new_rec t_process_rec;
     begin
 
-       -- If silent log mode don't do anything
+       -- if silent log mode don't do anything
         if p_session_init.logLevel > logLevelSilent then
 	        -- Sicherstellen, dass die LOG-Tabellen existieren
 	        createLogTables(p_session_init.tabNameMaster);
-        end if;
+        end if ;
 
         select seq_lila_log.nextVal into pProcessId from dual;
         -- persist to session internal table
@@ -2188,7 +2203,7 @@ BEGIN
 --	        deleteOldLogs(pProcessId, upper(trim(p_session_init.processName)), p_session_init.daysToKeep);
             persist_new_session(pProcessId, p_session_init.processName, p_session_init.logLevel,  
                 p_session_init.stepsToDo, p_session_init.daysToKeep, p_session_init.tabNameMaster);
-        end if;
+        end if ;
 
         -- copy new details data to memory
         v_new_rec.id              := pProcessId;
@@ -2488,7 +2503,7 @@ BEGIN
             dbms_pipe.pack_message('{"header":{"msg_type":"ADMIN_CALL", "request":"SERVER_SHUTDOWN"}}');
             if dbms_pipe.send_message(l_pipeName, timeout => 0) = 0 then
                  dbms_output.put_line('Shutdown-Signal an ' || l_pipeName || ' gesendet.');
-            end if;
+            end if ;
         end loop;
     end;
 	
@@ -2514,7 +2529,7 @@ BEGIN
         
         if l_serverCode = NUM_ACK_SHUTDOWN then
             -- server hat shutdown bestätigt
-            IF g_routing_cache.EXISTS(p_processId) THEN
+            if g_routing_cache.EXISTS(p_processId) THEN
                 l_slotIdx := g_routing_cache(p_processId);
         
                 -- 2. Markiere den physischen Slot als frei
@@ -2522,9 +2537,9 @@ BEGIN
         
                 -- 3. Entferne die Prozess-Verknüpfung aus dem Cache
                 g_routing_cache.DELETE(p_processId);
-            END IF;
+            end if ;
             
-        end if;
+        end if ;
     end;
 
     
@@ -2566,11 +2581,11 @@ BEGIN
         end case;
 
         -- Nur valide IDs registrieren
-        IF l_ProcessId > 0 THEN
+        if l_ProcessId > 0 THEN
             g_remote_sessions(l_ProcessId) := TRUE; -- in die Liste der RemoteSessions eintragen
             g_routing_cache(l_ProcessId) := g_routing_cache('INITIAL_HANDSHAKE'); -- ab jetzt kommuniziert dieser Client über einen zugewiesenen Kanal
             g_routing_cache.DELETE('INITIAL_HANDSHAKE');
-        END IF;
+        end if ;
         RETURN l_ProcessId;
         
     EXCEPTION
@@ -2651,18 +2666,18 @@ BEGIN
             l_data   := '"payload":{"server_message":"' || TXT_ACK_SHUTDOWN || '", ' || get_serverCode(TXT_ACK_SHUTDOWN);
         else
             l_data   := '"payload":{"server_message":"' || TXT_ACK_DECLINE || '", ' || get_serverCode(TXT_ACK_DECLINE);
-        end if;
+        end if ;
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
 
         DBMS_PIPE.RESET_BUFFER;
         DBMS_PIPE.PACK_MESSAGE(l_msg);        
         l_status := DBMS_PIPE.SEND_MESSAGE(p_clientChannel, timeout => 1);
         
-        IF l_status = 0 THEN
+        if l_status = 0 THEN
             dbms_output.put_line('Antwort an Client gesendet.');
         ELSE
             dbms_output.put_line('Fehler beim Senden der Antwort: ' || l_status);
-        END IF;
+        end if ;
         
         return l_password = g_shutdownPassword;
     end;
@@ -2682,16 +2697,16 @@ BEGIN
     
         -- 2. Jetzt erst den ersten tatsächlich freien Slot suchen
         FOR i IN 1..g_pipe_pool.COUNT LOOP
-            IF NOT g_pipe_pool(i).is_active THEN
+            if NOT g_pipe_pool(i).is_active THEN
                 l_slot_idx := i;
                 l_pipe     := g_pipe_pool(i).pipe_name;
                 EXIT;
-            END IF;
+            end if ;
         END LOOP;
     
-        IF l_slot_idx IS NULL THEN
+        if l_slot_idx IS NULL THEN
             RAISE_APPLICATION_ERROR(-20005, 'LILA: Kein freier Slot für weiteren Server gefunden.');
-        END IF;
+        end if ;
         l_job_name := 'LILA_SRV_SLOT_' || l_slot_idx;
         
             -- 2. Sicherstellen, dass kein "Leichen"-Job existiert
@@ -2739,7 +2754,7 @@ BEGIN
         l_stop_server_exception EXCEPTION;
         l_maxPipeSize PLS_INTEGER := 16777216; --  16777216, 67108864 
         l_lastHeartbeat TIMESTAMP := sysTimestamp;
-        l_heartbeatInterval constant PLS_INTEGER := 20000;
+        l_heartbeatInterval constant PLS_INTEGER := 60000;
         
         l_pipe     VARCHAR2(30) := p_pipeName;
         l_slot_idx PLS_INTEGER;
@@ -2751,20 +2766,20 @@ BEGIN
         
             -- 2. Jetzt erst den ersten tatsächlich freien Slot suchen
             FOR i IN 1..g_pipe_pool.COUNT LOOP
-                IF NOT g_pipe_pool(i).is_active THEN
+                if NOT g_pipe_pool(i).is_active THEN
                     l_slot_idx := i;
                     l_pipe     := g_pipe_pool(i).pipe_name;
                     EXIT;
-                END IF;
+                end if ;
             END LOOP;
         
-            IF l_slot_idx IS NULL THEN
+            if l_slot_idx IS NULL THEN
                 RAISE_APPLICATION_ERROR(-20005, 'LILA: Kein freier Slot für weiteren Server gefunden.');
-            END IF;
+            end if ;
             l_job_name := 'LILA_SRV_SLOT_' || l_slot_idx;
             g_pipe_pool(l_slot_idx).is_active := TRUE; 
     
-        end if;   
+        end if ;   
     
         g_shutdownPassword := p_password;
         g_pipeName := l_pipe;
@@ -2779,7 +2794,7 @@ BEGIN
         LOOP
             -- Warten auf die nächste Nachricht (Timeout in Sekunden)
             l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => l_timeout);
-            IF l_status = 0 THEN
+            if l_status = 0 THEN
             BEGIN 
                 DBMS_PIPE.UNPACK_MESSAGE(l_message);
                 l_clientChannel := extractClientChannel(l_message);
@@ -2791,7 +2806,7 @@ BEGIN
                             -- nur wenn gültiges Passwort geschickt wurde
                             l_shutdownSignal := TRUE;
                             INFO(g_serverProcessId, g_pipeName || '=> Shutdown by remote request');
-                        end if;
+                        end if ;
                         
                     WHEN 'NEW_SESSION' THEN
                         INFO(g_serverProcessId, g_pipeName || '=> New remote session ordered');
@@ -2830,15 +2845,15 @@ BEGIN
                         ERROR(g_serverProcessId, 'Internal START_SERVER; Critical Error while processing command: ' || SQLERRM);
                 END;
             
-            ELSIF l_status = 1 THEN
+            ELSif l_status = 1 THEN
                 -- Timeout erreicht. Passiert, wenn 10 Sekunden kein Signal kam.
                 if get_ms_diff(l_lastHeartbeat, sysTimestamp) >= l_heartbeatInterval then
                     -- Housekeeping
                     INFO(g_serverProcessId, g_pipeName || '=> Housekeeping');
                     SYNC_ALL_DIRTY;
                     l_lastHeartbeat := sysTimestamp;
-                end if;
-            end if;
+                end if ;
+            end if ;
             
             EXIT when l_shutdownSignal;
         END LOOP;
@@ -2854,7 +2869,7 @@ BEGIN
             l_request := extractClientRequest(l_message);
             
             -- Im Drain verarbeiten wir nur noch Log-Daten, keine neuen Sessions/Shutdowns
-            IF l_request IN ('LOG_ANY', 'MARK_STEP', 'UNFREEZE_REQUEST') THEN
+            if l_request IN ('LOG_ANY', 'MARK_STEP', 'UNFREEZE_REQUEST') THEN
                 CASE l_request
                     WHEN 'LOG_ANY' then
                         doRemote_logAny(l_message);
@@ -2866,7 +2881,7 @@ BEGIN
                         doRemote_unfreezeClient(l_clientChannel, l_message);
 
                 END CASE;
-            END IF;
+            end if ;
         END LOOP;
         
         DBMS_OUTPUT.ENABLE();
@@ -2874,10 +2889,10 @@ BEGIN
         -- es könnten noch dirty buffered Einträge existieren
         sync_all_dirty(true, true);
         
-        IF g_serverProcessId != -1 THEN
+        if g_serverProcessId != -1 THEN
             DBMS_OUTPUT.PUT_LINE('Finaler Cleanup für Server-ID: ' || g_serverProcessId);
             clearAllSessionData(g_serverProcessId);
-        END IF;
+        end if ;
 
         DBMS_PIPE.PURGE(g_pipeName); 
         g_remote_sessions.DELETE;
