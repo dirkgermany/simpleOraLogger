@@ -35,17 +35,12 @@ create or replace PACKAGE BODY LILA AS
     TYPE t_remote_sessions IS TABLE OF BOOLEAN INDEX BY BINARY_INTEGER;
     g_remote_sessions t_remote_sessions;
     
--- Im Package Body
-TYPE t_throttle_stat IS RECORD (
-    msg_count  PLS_INTEGER := 0,
-    last_check TIMESTAMP    := SYSTIMESTAMP
-);
-
--- Indexiert nach p_processId
-TYPE t_throttle_tab IS TABLE OF t_throttle_stat INDEX BY BINARY_INTEGER;
-
--- Der eigentliche Cache im RAM des sendenden Servers
-g_local_throttle_cache t_throttle_tab;
+    TYPE t_throttle_stat IS RECORD (
+        msg_count  PLS_INTEGER := 0,
+        last_check TIMESTAMP    := SYSTIMESTAMP
+    );
+    TYPE t_throttle_tab IS TABLE OF t_throttle_stat INDEX BY BINARY_INTEGER;
+    g_local_throttle_cache t_throttle_tab;
 
     ---------------------------------------------------------------
     -- Processes
@@ -113,52 +108,51 @@ g_local_throttle_cache t_throttle_tab;
         3 => t_pipe_slot(pipe_name => 'LILA_P3', is_active => FALSE)
     );
     
-    TYPE t_routing_map IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(50); 
-    g_routing_cache t_routing_map;
-    g_current_slot_idx PLS_INTEGER := 0;
+    TYPE t_routing_map is               TABLE OF PLS_INTEGER INDEX BY VARCHAR2(50); 
+    g_routing_cache                     t_routing_map;
+    g_current_slot_idx                  PLS_INTEGER := 0;
     
     ---------------------------------------------------------------
     -- General Variables
     ---------------------------------------------------------------
 
     -- ALERT Registration
-    g_isAlertRegistered BOOLEAN := false;
-    g_alertCode_Flush CONSTANT varchar2(25) := 'LILA_ALERT_FLUSH_CFG';
-    g_alertCode_Read  CONSTANT varchar2(25) := 'LILA_ALERT_READ_CFG';
+    g_isAlertRegistered                 BOOLEAN                 := false;
+    C_LILA_ALERT_FLUSH_CFG              CONSTANT varchar2(25)   := 'LILA_ALERT_FLUSH_CFG';
+    C_LILA_ALERT_READ_CFG               CONSTANT varchar2(25)   := 'LILA_ALERT_READ_CFG';
     
-    g_pipeName  VARCHAR2(30) := NULL;
-
     -- general Flush Time-Duration
-    g_flush_millis_threshold PLS_INTEGER            := 1500;  -- Max. Millisekunden bis zum Flush
-    g_flush_log_threshold PLS_INTEGER               := 12500; -- Max. Anzahl Logs bis zum Flush
-    g_max_entries_per_monitor_action PLS_INTEGER    := 2500;  -- Round Robin: Max. Anzahl Einträge für eine Aktion je Action
-    g_flush_monitor_threshold PLS_INTEGER           := 2500;  -- Max. Anzahl Monitoreinträge für das Flush
-    g_monitor_alert_threshold_factor NUMBER         := 5.0;   -- Max. Ausreißer in der Dauer eines Verarbeitungsschrittes
+    C_FLUSH_MILLIS_THRESHOLD            PLS_INTEGER             := 1500;  -- Max. Millisekunden bis zum Flush
+    C_FLUSH_LOG_THRESHOLD               PLS_INTEGER             := 12500; -- Max. Anzahl Logs bis zum Flush
+-- löschen    C_MAX_ENTRIES_PER_MONITOR_ACTION PLS_INTEGER    := 2500;  -- Round Robin: Max. Anzahl Einträge für eine Aktion je Action
+    C_FLUSH_MONITOR_THRESHOLD           PLS_INTEGER             := 2500;  -- Max. Anzahl Monitoreinträge für das Flush
+    C_MONITOR_ALERT_THRESHOLD_FACTOR    NUMBER                  := 3.0;   -- Max. Ausreißer in der Dauer eines Verarbeitungsschrittes
   
     -- Throttling for SIGNALs
-    C_TIMEOUT_DISC_CLI  CONSTANT NUMBER      := 1.5;   -- Client-Discovery (schnell)
-    C_TIMEOUT_DISC_SRV  CONSTANT NUMBER      := 4.0;   -- Server-Startup (sicher)
-    C_TIMEOUT_HANDSHAKE CONSTANT NUMBER      := 10.0;  -- NEW_SESSION/Sync (geduldig)
-    C_TIMEOUT_SRV_LOOP  CONSTANT NUMBER      := 1.5;   -- Server-Loop (Housekeeping-Intervall)
-    C_TIMEOUT_DRAIN     CONSTANT NUMBER      := 0.1;   -- Graceful Shutdown (Nachlaufzeit)
+    C_TIMEOUT_DISC_CLI                  CONSTANT NUMBER         := 1.5;   -- Client-Discovery (schnell)
+    C_TIMEOUT_DISC_SRV                  CONSTANT NUMBER         := 4.0;   -- Server-Startup (sicher)
+    C_TIMEOUT_HANDSHAKE                 CONSTANT NUMBER         := 10.0;  -- NEW_SESSION/Sync (geduldig)
+    C_TIMEOUT_SRV_LOOP                  CONSTANT NUMBER         := 1.5;   -- Server-Loop (Housekeeping-Intervall)
+    C_TIMEOUT_DRAIN                     CONSTANT NUMBER         := 0.1;   -- Graceful Shutdown (Nachlaufzeit)
 
     
     TYPE code_map_t IS TABLE OF PLS_INTEGER INDEX BY VARCHAR2(30);
     g_response_codes code_map_t;
     
-    g_serverProcessId PLS_INTEGER := -1;
-    g_shutdownPassword varchar2(50);
+    g_serverPipeName                    VARCHAR2(50)            := NULL;
+    g_serverProcessId                   PLS_INTEGER             := -1;
+    g_shutdownPassword                  varchar2(50);
     
-    g_is_high_perf    BOOLEAN := FALSE;
-    g_msg_counter     PLS_INTEGER := 0;
-    g_last_check_time TIMESTAMP := SYSTIMESTAMP;
+    g_is_high_perf                      BOOLEAN                 := FALSE;
+    g_msg_counter                       PLS_INTEGER             := 0;
+    g_last_check_time                   TIMESTAMP               := SYSTIMESTAMP;
     
     ---------------------------------------------------------------
     -- Placeholders for tables
     ---------------------------------------------------------------
-    PARAM_MASTER_TABLE constant varchar2(20) := 'PH_MASTER_TABLE';
-    PARAM_DETAIL_TABLE constant varchar2(20) := 'PH_DETAIL_TABLE';
-    SUFFIX_DETAIL_NAME constant varchar2(16) := '_DETAIL';
+    PARAM_MASTER_TABLE                  constant varchar2(20)   := 'PH_MASTER_TABLE';
+    PARAM_DETAIL_TABLE                  constant varchar2(20)   := 'PH_DETAIL_TABLE';
+    SUFFIX_DETAIL_NAME                  constant varchar2(16)   := '_DETAIL';
     
     ---------------------------------------------------------------
     -- Functions and Procedures
@@ -489,10 +483,21 @@ dbms_output.enable();
         l_msg := '{' || l_header || ', ' || l_meta || ', ' || l_data || '}';
         l_pipeName := getServerPipeForSession(p_processId);
         DBMS_PIPE.PACK_MESSAGE(l_msg);
-        l_status := DBMS_PIPE.SEND_MESSAGE(l_pipeName, timeout => p_timeoutSec);
-        if l_status != 0 THEN
-            null;
-        end if ;
+        for i in 1 .. 3 loop
+            l_status := DBMS_PIPE.SEND_MESSAGE(l_pipeName, timeout => p_timeoutSec);
+            if l_status = 0 THEN
+                exit;
+            end if ;
+            dbms_session.sleep(0.3);
+        end loop;
+        
+        if l_status = 2 and p_processId != g_serverProcessId then
+            -- ich bin ein Client und kann keine Nachricht in die Pipe schreiben
+            -- Neuanmeldung an alternativem Server
+            close_session(p_processId);
+            RAISE_APPLICATION_ERROR(-20006, 'LILA: Client kann keine Nachrichten an Server senden.');
+        end if;
+            
         
     exception
         when others then
@@ -1094,14 +1099,14 @@ BEGIN
 
         -- Falls noch nie geflusht wurde (Start), setzen wir die Differenz hoch
         if g_sessionList(v_idx).last_monitor_flush is null then
-            v_ms_since_flush := g_flush_millis_threshold + 1;
+            v_ms_since_flush := C_FLUSH_MILLIS_THRESHOLD + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_monitor_flush, v_now);
         end if ;
         -- 4. Die "Smarte" Flush-Bedingung: Menge ODER Zeit ODER Force
         if p_force 
-           or g_sessionList(v_idx).monitor_dirty_count >= g_flush_monitor_threshold 
-           or v_ms_since_flush >= g_flush_millis_threshold
+           or g_sessionList(v_idx).monitor_dirty_count >= C_FLUSH_MONITOR_THRESHOLD 
+           or v_ms_since_flush >= C_FLUSH_MILLIS_THRESHOLD
         then
             flushMonitor(p_processId);
             
@@ -1188,7 +1193,7 @@ BEGIN
     begin
         if p_monitor_rec.steps_done > 5 THEN 
             
-            l_threshold_duration := p_monitor_rec.avg_action_time * g_monitor_alert_threshold_factor;
+            l_threshold_duration := p_monitor_rec.avg_action_time * C_MONITOR_ALERT_THRESHOLD_FACTOR;
         
             if p_monitor_rec.used_time > l_threshold_duration THEN
                 -- Hier wird die Alert-Aktion ausgelöst
@@ -1635,7 +1640,7 @@ BEGIN
     
         -- 2. Zeit seit dem letzten Master-Update berechnen
         if g_sessionList(v_idx).last_process_flush is null then
-            v_ms_since_flush := g_flush_millis_threshold + 1;
+            v_ms_since_flush := C_FLUSH_MILLIS_THRESHOLD + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_process_flush, v_now);
         end if ;
@@ -1644,8 +1649,8 @@ BEGIN
         -- Wir flushen nur, wenn FORCE (z.B. Session-Ende), der Zeit-Threshold erreicht ist
         -- ODER wenn dieser spezifische Prozess als "dirty" markiert wurde.
         if p_force 
-           or (g_sessionList(v_idx).process_is_dirty AND v_ms_since_flush >= g_flush_millis_threshold)
-           or (p_force = false AND v_ms_since_flush >= (g_flush_millis_threshold * 10)) -- Safety Sync
+           or (g_sessionList(v_idx).process_is_dirty AND v_ms_since_flush >= C_FLUSH_MILLIS_THRESHOLD)
+           or (p_force = false AND v_ms_since_flush >= (C_FLUSH_MILLIS_THRESHOLD * 10)) -- Safety Sync
         then
             -- Nur schreiben, wenn es auch wirklich Änderungen im Cache gibt
             if g_process_cache.EXISTS(p_processId) then
@@ -1684,14 +1689,14 @@ BEGIN
         
         -- (get_ms_diff ist Ihre optimierte Funktion)
         if g_sessionList(v_idx).last_log_flush is null then
-            v_ms_since_flush := g_flush_millis_threshold + 1;
+            v_ms_since_flush := C_FLUSH_MILLIS_THRESHOLD + 1;
         else
             v_ms_since_flush := get_ms_diff(g_sessionList(v_idx).last_log_flush, v_now);
         end if ;
         -- 4. Flush-Bedingung: Menge ODER Zeit ODER Force
         if p_force 
-           or g_sessionList(v_idx).log_dirty_count >= g_flush_log_threshold 
-           or v_ms_since_flush >= g_flush_millis_threshold
+           or g_sessionList(v_idx).log_dirty_count >= C_FLUSH_LOG_THRESHOLD 
+           or v_ms_since_flush >= C_FLUSH_MILLIS_THRESHOLD
         then
             -- Alle gepufferten Logs dieses Prozesses in die DB schreiben
            flushLogs(p_processId);
@@ -2048,62 +2053,75 @@ BEGIN
         v_key           VARCHAR2(100);
         v_next_key      VARCHAR2(100);
     BEGIN
-        -- A) MONITOR-DATEN & CACHES RÄUMEN
-        -- Wir nutzen den sicheren Loop (Sichern vor Löschen)
-        v_key := g_monitor_groups.FIRST;
-        WHILE v_key IS NOT NULL LOOP
-            v_next_key := g_monitor_groups.NEXT(v_key);
-            
-            if v_key LIKE v_search_prefix || '%' THEN
-                -- Historie löschen
-                g_monitor_groups.DELETE(v_key);
+        if p_processId = g_serverProcessId then
+            g_monitor_groups.delete;
+            g_log_groups.delete;
+            g_dirty_queue.delete;
+            v_indexSession.delete;
+            g_sessionList.delete;
+            g_process_cache.DELETE;
+            g_monitor_shadows.DELETE;
+            g_pipe_pool.delete;
+            g_local_throttle_cache.DELETE;        
+        else
+               
+            -- A) MONITOR-DATEN & CACHES RÄUMEN
+            -- Wir nutzen den sicheren Loop (Sichern vor Löschen)
+            v_key := g_monitor_groups.FIRST;
+            WHILE v_key IS NOT NULL LOOP
+                v_next_key := g_monitor_groups.NEXT(v_key);
+                
+                if v_key LIKE v_search_prefix || '%' THEN
+                    -- Historie löschen
+                    g_monitor_groups.DELETE(v_key);
+                end if ;
+                v_key := v_next_key;
+            END LOOP;
+        
+            -- B) LOG-GRUPPEN RÄUMEN
+            -- Da g_log_groups ebenfalls mit der ID als Key (String) arbeitet:
+            if g_log_groups.EXISTS(TO_CHAR(p_processId)) THEN
+                g_log_groups.DELETE(TO_CHAR(p_processId));
+            end if;
+    
+            -- C) DIRTY QUEUE RÄUMEN
+            if g_dirty_queue.EXISTS(p_processId) THEN
+                g_dirty_queue.DELETE(p_processId);
+            end if;
+        
+            -- D) SESSION-METADATEN (MASTER-LISTE) RÄUMEN
+            if v_indexSession.EXISTS(p_processId) THEN
+                v_idx := v_indexSession(p_processId);
+                g_sessionList.DELETE(v_idx);     -- Eintrag in der Nested Table (Slot wird leer)
+                v_indexSession.DELETE(p_processId); -- Wegweiser löschen
+            end if;
+        
+            -- E) PROZESS CACHE RÄUMEN
+            if g_process_cache.EXISTS(p_processId) THEN
+                g_process_cache.DELETE(p_processId);
             end if ;
-            v_key := v_next_key;
-        END LOOP;
-    
-        -- B) LOG-GRUPPEN RÄUMEN
-        -- Da g_log_groups ebenfalls mit der ID als Key (String) arbeitet:
-        if g_log_groups.EXISTS(TO_CHAR(p_processId)) THEN
-            g_log_groups.DELETE(TO_CHAR(p_processId));
-        end if ;
-    
-        -- C) DIRTY QUEUE RÄUMEN
-        if g_dirty_queue.EXISTS(p_processId) THEN
-            g_dirty_queue.DELETE(p_processId);
-        end if ;
-    
-        -- D) SESSION-METADATEN (MASTER-LISTE) RÄUMEN
-        if v_indexSession.EXISTS(p_processId) THEN
-            v_idx := v_indexSession(p_processId);
-            g_sessionList.DELETE(v_idx);     -- Eintrag in der Nested Table (Slot wird leer)
-            v_indexSession.DELETE(p_processId); -- Wegweiser löschen
-        end if ;
-    
-        -- E) PROZESS CACHE RÄUMEN
-        if g_process_cache.EXISTS(p_processId) THEN
-            g_process_cache.DELETE(p_processId);
-        end if ;
-        
-        -- F) Monitor Shadows löschen
-            -- Wir starten am Anfang der Schatten-Map
-        v_key := g_monitor_shadows.FIRST;
-    
-        WHILE v_key IS NOT NULL LOOP
-            -- Wenn der Key zu diesem Prozess gehört, löschen wir den Eintrag
-            if v_key LIKE v_search_prefix || '%' THEN
-                g_monitor_shadows.DELETE(v_key);
-                -- Optional: DBMS_OUTPUT.PUT_LINE('Shadow gelöscht für: ' || v_key);
-            end if ;
             
-            -- Zum nächsten Key springen
-            v_key := g_monitor_shadows.NEXT(v_key);
-        END LOOP;
-        
-        -- G) Die Liste der aktiven Server zurücksetzen
-        FOR i IN 1..g_pipe_pool.COUNT LOOP
-                g_pipe_pool(i).is_active := FALSE;
-        END LOOP;
-        
+            -- F) Monitor Shadows löschen
+                -- Wir starten am Anfang der Schatten-Map
+            v_key := g_monitor_shadows.FIRST;   
+            WHILE v_key IS NOT NULL LOOP
+                -- Wenn der Key zu diesem Prozess gehört, löschen wir den Eintrag
+                if v_key LIKE v_search_prefix || '%' THEN
+                    g_monitor_shadows.DELETE(v_key);
+                    -- Optional: DBMS_OUTPUT.PUT_LINE('Shadow gelöscht für: ' || v_key);
+                end if ;            
+                -- Zum nächsten Key springen
+                v_key := g_monitor_shadows.NEXT(v_key);
+            END LOOP;
+            
+            -- G) Die Liste der aktiven Server zurücksetzen
+            FOR i IN 1..g_pipe_pool.COUNT LOOP
+                    g_pipe_pool(i).is_active := FALSE;
+            END LOOP;
+            
+            -- H) Speicher von gesendeten Nachrichten und vergangener Zeit für diesen Prozess
+            g_local_throttle_cache.DELETE(p_processId);
+        end if;
     
     EXCEPTION
         WHEN OTHERS THEN
@@ -2782,18 +2800,18 @@ BEGIN
         end if ;   
     
         g_shutdownPassword := p_password;
-        g_pipeName := l_pipe;
+        g_serverPipeName := l_pipe;
         g_serverProcessId := new_session('LILA_REMOTE_SERVER', logLevelInfo);
 
         g_remote_sessions.DELETE;
         DBMS_PIPE.RESET_BUFFER;
-        DBMS_PIPE.PURGE(g_pipeName);
-        l_dummyRes := DBMS_PIPE.REMOVE_PIPE(g_pipeName);
-        l_dummyRes := DBMS_PIPE.CREATE_PIPE(pipename => g_pipeName, maxpipesize => l_maxPipeSize, private => false);
+        DBMS_PIPE.PURGE(g_serverPipeName);
+        l_dummyRes := DBMS_PIPE.REMOVE_PIPE(g_serverPipeName);
+        l_dummyRes := DBMS_PIPE.CREATE_PIPE(pipename => g_serverPipeName, maxpipesize => l_maxPipeSize, private => false);
 
         LOOP
             -- Warten auf die nächste Nachricht (Timeout in Sekunden)
-            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => l_timeout);
+            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_serverPipeName, timeout => l_timeout);
             if l_status = 0 THEN
             BEGIN 
                 DBMS_PIPE.UNPACK_MESSAGE(l_message);
@@ -2805,15 +2823,15 @@ BEGIN
                         if handleServerShutdown(l_clientChannel, l_message) then 
                             -- nur wenn gültiges Passwort geschickt wurde
                             l_shutdownSignal := TRUE;
-                            INFO(g_serverProcessId, g_pipeName || '=> Shutdown by remote request');
+                            INFO(g_serverProcessId, g_serverPipeName || '=> Shutdown by remote request');
                         end if ;
                         
                     WHEN 'NEW_SESSION' THEN
-                        INFO(g_serverProcessId, g_pipeName || '=> New remote session ordered');
+                        INFO(g_serverProcessId, g_serverPipeName || '=> New remote session ordered');
                         doRemote_newSession(l_clientChannel, l_message);
                         
                     WHEN 'CLOSE_SESSION' THEN
-                        INFO(g_serverProcessId, g_pipeName || '=> Remote session closed');
+                        INFO(g_serverProcessId, g_serverPipeName || '=> Remote session closed');
                         doRemote_closeSession(l_clientChannel, l_message);
 
                     WHEN 'LOG_ANY' then
@@ -2826,11 +2844,11 @@ BEGIN
                         doRemote_unfreezeClient(l_clientChannel, l_message);
                         
                     WHEN 'SERVER_PING' then         
-                        INFO(g_serverProcessId, g_pipeName || '=> Ping...');
+                        INFO(g_serverProcessId, g_serverPipeName || '=> Ping...');
                         doRemote_pingEcho(l_clientChannel, l_message);
                     ELSE 
                         -- Unbekanntes Tag loggen
-                        warn(g_serverProcessId, g_pipeName || '=> Received unknown request: ' || l_request);
+                        warn(g_serverProcessId, g_serverPipeName || '=> Received unknown request: ' || l_request);
                 END CASE;
 
                 EXCEPTION
@@ -2849,7 +2867,7 @@ BEGIN
                 -- Timeout erreicht. Passiert, wenn 10 Sekunden kein Signal kam.
                 if get_ms_diff(l_lastHeartbeat, sysTimestamp) >= l_heartbeatInterval then
                     -- Housekeeping
-                    INFO(g_serverProcessId, g_pipeName || '=> Housekeeping');
+                    INFO(g_serverProcessId, g_serverPipeName || '=> Housekeeping');
                     SYNC_ALL_DIRTY;
                     l_lastHeartbeat := sysTimestamp;
                 end if ;
@@ -2862,7 +2880,7 @@ BEGIN
         -- Wir leeren die Pipe, falls während des Shutdowns noch Nachrichten reinkamen.
         -- Wir nutzen ein minimales Timeout (0.1s), um dem Laptop-CPU-Scheduling Zeit zu geben.
         LOOP
-            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_pipeName, timeout => 0.1);
+            l_status := DBMS_PIPE.RECEIVE_MESSAGE(g_serverPipeName, timeout => 0.1);
             EXIT WHEN l_status != 0; -- Pipe ist leer (1) oder Fehler/Interrupt (!=0)
             
             DBMS_PIPE.UNPACK_MESSAGE(l_message);
@@ -2894,7 +2912,7 @@ BEGIN
             clearAllSessionData(g_serverProcessId);
         end if ;
 
-        DBMS_PIPE.PURGE(g_pipeName); 
+        DBMS_PIPE.PURGE(g_serverPipeName); 
         g_remote_sessions.DELETE;
         
         -- abschließende Analyse der Buffer-Zustände
@@ -2912,7 +2930,7 @@ BEGIN
         CLOSE_SESSION(g_serverProcessId);
     
     WHEN OTHERS THEN
-        DBMS_PIPE.PURGE(g_pipeName); 
+        DBMS_PIPE.PURGE(g_serverPipeName); 
         raise;
     end;
 
